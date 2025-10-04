@@ -1,0 +1,25 @@
+{
+  "name": "thermal-printer-api",
+  "version": "1.0.0",
+  "description": "Backend API for network thermal printer support",
+  "main": "printer-api.js",
+  "scripts": {
+    "start": "node printer-api.js",
+    "dev": "nodemon printer-api.js"
+  },
+  "keywords": [
+    "thermal-printer",
+    "network-printer",
+    "escpos"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
+

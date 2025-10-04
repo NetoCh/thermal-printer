@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Printer, Wifi, WifiOff, AlertCircle, Settings, FileText, ArrowLeft } from 'lucide-react';
 import SettingsPage from './components/SettingsPage';
@@ -6,8 +6,14 @@ import FormPage from './components/FormPage';
 import hpcLogo from './assets/hpc-logo.svg';
 
 interface SerialPortConnection {
-  port: SerialPort | null;
+  port: any | null; // SerialPort type from Web Serial API
   writer: WritableStreamDefaultWriter | null;
+  connected: boolean;
+}
+
+interface NetworkPrinterConnection {
+  ipAddress: string;
+  port: number;
   connected: boolean;
 }
 
@@ -19,6 +25,8 @@ interface ThermalPrinterSettings {
   customText: string;
 }
 
+type ConnectionType = 'serial' | 'network';
+
 interface AnimalButton {
   name: string;
   color: string;
@@ -29,15 +37,28 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   
+  const [connectionType, setConnectionType] = useState<ConnectionType>('serial');
   const [connection, setConnection] = useState<SerialPortConnection>({
     port: null,
     writer: null,
     connected: false
   });
+  const [networkConnection, setNetworkConnection] = useState<NetworkPrinterConnection>({
+    ipAddress: '192.168.1.100',
+    port: 9100,
+    connected: false
+  });
+  const [networkSettings, setNetworkSettings] = useState({
+    ipAddress: '192.168.1.100',
+    port: 9100
+  });
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<Array<{ ipAddress: string; port: number; name?: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastPrinted, setLastPrinted] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showConnectionModal, setShowConnectionModal] = useState(false);
   
   // Default settings - now configurable
   const [thermalPrinterSettings, setThermalPrinterSettings] = useState<ThermalPrinterSettings>({
@@ -88,7 +109,7 @@ function App() {
     }
   }, [connection.connected]);
 
-  const connectToPrinter = useCallback(async () => {
+  const connectToSerialPrinter = useCallback(async () => {
     if (!('serial' in navigator)) {
       setError('Web Serial API not supported in this browser');
       return;
@@ -117,86 +138,211 @@ function App() {
     } finally {
       setIsConnecting(false);
     }
+  }, [thermalPrinterSettings]);
+
+  const discoverNetworkPrinters = useCallback(async () => {
+    setIsDiscovering(true);
+    setError(null);
+
+    try {
+      // Call backend API to discover network printers
+      const response = await fetch('/api/printer/discover', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to discover printers');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.printers) {
+        setDiscoveredPrinters(result.printers);
+        if (result.printers.length === 0) {
+          setError('No network printers found on the local network');
+        }
+      } else {
+        throw new Error(result.error || 'Failed to discover printers');
+      }
+    } catch (err) {
+      setError(`Printer discovery failed: ${(err as Error).message}. Make sure the backend API server is running.`);
+      setDiscoveredPrinters([]);
+    } finally {
+      setIsDiscovering(false);
+    }
   }, []);
 
-  const disconnectPrinter = useCallback(async () => {
-    if (connection.writer) {
-      try {
-        await connection.writer.close();
-      } catch (err) {
-        console.error('Error closing writer:', err);
-      }
-    }
-
-    if (connection.port) {
-      try {
-        await connection.port.close();
-      } catch (err) {
-        console.error('Error closing port:', err);
-      }
-    }
-
-    setConnection({ port: null, writer: null, connected: false });
+  const connectToNetworkPrinter = useCallback(async () => {
+    setIsConnecting(true);
     setError(null);
-  }, [connection]);
+
+    try {
+      if (!networkSettings.ipAddress || !networkSettings.port) {
+        throw new Error('Please provide valid IP address and port');
+      }
+
+      // For network printers, we'll use a backend API endpoint
+      // You'll need to set up a simple server that handles the network printing
+      const response = await fetch('/api/printer/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ipAddress: networkSettings.ipAddress,
+          port: networkSettings.port
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setNetworkConnection({
+          ipAddress: networkSettings.ipAddress,
+          port: networkSettings.port,
+          connected: true
+        });
+        setError(null);
+      } else {
+        throw new Error(result.error || 'Failed to connect to network printer');
+      }
+    } catch (err) {
+      setError(`Failed to connect to network printer: ${(err as Error).message}. Network printing requires a backend API server.`);
+      setNetworkConnection({
+        ipAddress: networkSettings.ipAddress,
+        port: networkSettings.port,
+        connected: false
+      });
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [networkSettings]);
+
+  const connectToPrinter = useCallback(async () => {
+    if (connectionType === 'serial') {
+      await connectToSerialPrinter();
+    } else {
+      await connectToNetworkPrinter();
+    }
+    setShowConnectionModal(false);
+  }, [connectionType, connectToSerialPrinter, connectToNetworkPrinter]);
+
+  const disconnectPrinter = useCallback(async () => {
+    if (connectionType === 'serial') {
+      if (connection.writer) {
+        try {
+          await connection.writer.close();
+        } catch (err) {
+          console.error('Error closing writer:', err);
+        }
+      }
+
+      if (connection.port) {
+        try {
+          await connection.port.close();
+        } catch (err) {
+          console.error('Error closing port:', err);
+        }
+      }
+
+      setConnection({ port: null, writer: null, connected: false });
+    } else {
+      // Disconnect network printer via API
+      try {
+        await fetch('/api/printer/disconnect', { method: 'POST' });
+      } catch (err) {
+        console.error('Error disconnecting network printer:', err);
+      }
+      setNetworkConnection({ ...networkConnection, connected: false });
+    }
+
+    setError(null);
+  }, [connection, connectionType, networkConnection]);
 
   const printText = useCallback(async (text: string) => {
-    if (!connection.connected || !connection.writer) {
+    const isConnected = connectionType === 'serial' ? connection.connected : networkConnection.connected;
+    
+    if (!isConnected) {
       setError('Printer not connected');
       return;
     }
 
     try {
       const encoder = new TextEncoder();
-      const writer = connection.writer;
+      const timestamp = new Date().toLocaleString();
 
-      await writer.write(ESC_POS.CENTER); // Center alignment
-      await writer.write(ESC_POS.LARGE_TEXT); // Large text
-      await writer.write(ESC_POS.BOLD_ON); // Bold on
-      await writer.write(encoder.encode(`Hard Plot Center`));
-      await writer.write(ESC_POS.BOLD_OFF); // Bold off
-      await writer.write(ESC_POS.FEED);
-      await writer.write(ESC_POS.FEED);
+      if (connectionType === 'serial' && connection.writer) {
+        const writer = connection.writer;
 
-      // Print custom text if configured
-      if (thermalPrinterSettings.customText.trim()) {
         await writer.write(ESC_POS.CENTER); // Center alignment
-        await writer.write(ESC_POS.NORMAL_TEXT); // Normal text size
+        await writer.write(ESC_POS.LARGE_TEXT); // Large text
         await writer.write(ESC_POS.BOLD_ON); // Bold on
-        await writer.write(encoder.encode(thermalPrinterSettings.customText));
+        await writer.write(encoder.encode(`Hard Plot Center`));
         await writer.write(ESC_POS.BOLD_OFF); // Bold off
         await writer.write(ESC_POS.FEED);
         await writer.write(ESC_POS.FEED);
-      }
 
-      // Print sequence
-      await writer.write(ESC_POS.CENTER); // Center alignment
-      await writer.write(ESC_POS.LARGE_TEXT); // Large text
-      await writer.write(ESC_POS.BOLD_ON); // Bold on
-      
-      // Print the animal name
-      await writer.write(encoder.encode(text));
-      await writer.write(ESC_POS.FEED);
-      await writer.write(ESC_POS.FEED);
-      
-      // Print timestamp
-      await writer.write(ESC_POS.NORMAL_TEXT); // Normal text
-      await writer.write(ESC_POS.BOLD_OFF); // Bold off
-      const timestamp = new Date().toLocaleString();
-      await writer.write(encoder.encode(`Printed: ${timestamp}`));
-      await writer.write(ESC_POS.FEED);
-      await writer.write(ESC_POS.FEED);
-      await writer.write(ESC_POS.FEED);
-      
-      // Cut paper
-      await writer.write(ESC_POS.CUT);
+        // Print custom text if configured
+        if (thermalPrinterSettings.customText.trim()) {
+          await writer.write(ESC_POS.CENTER); // Center alignment
+          await writer.write(ESC_POS.NORMAL_TEXT); // Normal text size
+          await writer.write(ESC_POS.BOLD_ON); // Bold on
+          await writer.write(encoder.encode(thermalPrinterSettings.customText));
+          await writer.write(ESC_POS.BOLD_OFF); // Bold off
+          await writer.write(ESC_POS.FEED);
+          await writer.write(ESC_POS.FEED);
+        }
+
+        // Print sequence
+        await writer.write(ESC_POS.CENTER); // Center alignment
+        await writer.write(ESC_POS.LARGE_TEXT); // Large text
+        await writer.write(ESC_POS.BOLD_ON); // Bold on
+        
+        // Print the animal name
+        await writer.write(encoder.encode(text));
+        await writer.write(ESC_POS.FEED);
+        await writer.write(ESC_POS.FEED);
+        
+        // Print timestamp
+        await writer.write(ESC_POS.NORMAL_TEXT); // Normal text
+        await writer.write(ESC_POS.BOLD_OFF); // Bold off
+        await writer.write(encoder.encode(`Printed: ${timestamp}`));
+        await writer.write(ESC_POS.FEED);
+        await writer.write(ESC_POS.FEED);
+        await writer.write(ESC_POS.FEED);
+        
+        // Cut paper
+        await writer.write(ESC_POS.CUT);
+      } else if (connectionType === 'network') {
+        // Send print job to network printer via backend API
+        const response = await fetch('/api/printer/print', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text,
+            customText: thermalPrinterSettings.customText,
+            timestamp
+          })
+        });
+
+        const result = await response.json();
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to print');
+        }
+      }
 
       setLastPrinted(text);
       setError(null);
     } catch (err) {
       setError(`Print failed: ${(err as Error).message}`);
     }
-  }, [connection]);
+  }, [connection, connectionType, networkConnection, thermalPrinterSettings]);
 
   const MainPage = () => (
     <div className="max-w-4xl mx-auto p-6">
@@ -232,7 +378,7 @@ function App() {
             <button
               key={animal.name}
               onClick={() => printText(animal.name)}
-              disabled={!connection.connected}
+              disabled={!(connection.connected || networkConnection.connected)}
               className={`
                 ${animal.color} 
                 text-white font-bold text-xl py-8 px-6 rounded-xl
@@ -315,10 +461,12 @@ function App() {
               </button>
               
               <div className="flex items-center space-x-2">
-                {connection.connected ? (
+                {(connection.connected || networkConnection.connected) ? (
                   <>
                     <Wifi className="w-5 h-5 text-green-500" />
-                    <span className="text-green-600 font-medium">Connected</span>
+                    <span className="text-green-600 font-medium">
+                      Connected {connectionType === 'network' ? '(Network)' : '(Serial)'}
+                    </span>
                   </>
                 ) : (
                   <>
@@ -328,7 +476,7 @@ function App() {
                 )}
               </div>
               
-              {connection.connected ? (
+              {(connection.connected || networkConnection.connected) ? (
                 <button
                   onClick={disconnectPrinter}
                   className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
@@ -337,7 +485,7 @@ function App() {
                 </button>
               ) : (
                 <button
-                  onClick={connectToPrinter}
+                  onClick={() => setShowConnectionModal(true)}
                   disabled={isConnecting}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 transition-colors"
                 >
@@ -357,7 +505,7 @@ function App() {
           element={
             <FormPage
               onPrint={printText}
-              isConnected={connection.connected}
+              isConnected={connection.connected || networkConnection.connected}
             />
           } 
         />
@@ -371,6 +519,152 @@ function App() {
         animalButtons={animalButtons}
         onSaveSettings={handleSaveSettings}
       />
+
+      {/* Connection Modal */}
+      {showConnectionModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Connect Printer</h2>
+            
+            {/* Connection Type Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Connection Type
+              </label>
+              <div className="space-y-3">
+                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="connectionType"
+                    value="serial"
+                    checked={connectionType === 'serial'}
+                    onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div className="ml-3">
+                    <div className="font-medium text-gray-900">USB/Serial Port</div>
+                    <div className="text-sm text-gray-500">Direct connection via USB or Serial cable</div>
+                  </div>
+                </label>
+                
+                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="connectionType"
+                    value="network"
+                    checked={connectionType === 'network'}
+                    onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div className="ml-3">
+                    <div className="font-medium text-gray-900">Network Printer</div>
+                    <div className="text-sm text-gray-500">Connect via IP address</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Network Printer Settings */}
+            {connectionType === 'network' && (
+              <div className="mb-6 space-y-4">
+                {/* Auto-discover Button */}
+                <div>
+                  <button
+                    onClick={discoverNetworkPrinters}
+                    disabled={isDiscovering}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <Wifi className="w-5 h-5" />
+                    <span>{isDiscovering ? 'Scanning network...' : 'Auto-discover Printers'}</span>
+                  </button>
+                </div>
+
+                {/* Discovered Printers List */}
+                {discoveredPrinters.length > 0 && (
+                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <h4 className="text-sm font-semibold text-green-800 mb-3">Found {discoveredPrinters.length} printer(s):</h4>
+                    <div className="space-y-2">
+                      {discoveredPrinters.map((printer, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setNetworkSettings({ ipAddress: printer.ipAddress, port: printer.port })}
+                          className="w-full p-3 bg-white rounded-lg border-2 border-transparent hover:border-green-500 transition-colors text-left"
+                        >
+                          <div className="font-medium text-gray-900">
+                            {printer.name || `Printer ${index + 1}`}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {printer.ipAddress}:{printer.port}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-center text-sm text-gray-500">or enter manually:</div>
+
+                {/* Manual Entry */}
+                <div className="p-4 bg-gray-50 rounded-lg space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      IP Address
+                    </label>
+                    <input
+                      type="text"
+                      value={networkSettings.ipAddress}
+                      onChange={(e) => setNetworkSettings({ ...networkSettings, ipAddress: e.target.value })}
+                      placeholder="192.168.1.100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Port
+                    </label>
+                    <input
+                      type="number"
+                      value={networkSettings.port}
+                      onChange={(e) => setNetworkSettings({ ...networkSettings, port: parseInt(e.target.value) || 9100 })}
+                      placeholder="9100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    <strong>Note:</strong> Most network thermal printers use port 9100 (raw printing). Network printing requires a backend API server to be running.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Info Box */}
+            {connectionType === 'serial' && (
+              <div className="mb-6 p-3 bg-blue-50 rounded border-l-4 border-blue-400">
+                <p className="text-sm text-blue-700">
+                  You'll be prompted to select your printer from the available serial devices.
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowConnectionModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={connectToPrinter}
+                disabled={isConnecting}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 transition-colors"
+              >
+                {isConnecting ? 'Connecting...' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
