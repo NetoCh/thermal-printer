@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { Printer, Wifi, WifiOff, AlertCircle, Settings } from 'lucide-react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Printer, Wifi, WifiOff, AlertCircle, Settings, FileText, ArrowLeft } from 'lucide-react';
 import SettingsPage from './components/SettingsPage';
+import FormPage from './components/FormPage';
 import hpcLogo from './assets/hpc-logo.svg';
 
 interface SerialPortConnection {
@@ -24,6 +26,9 @@ interface AnimalButton {
 }
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   const [connection, setConnection] = useState<SerialPortConnection>({
     port: null,
     writer: null,
@@ -73,171 +78,6 @@ function App() {
     PRINT_BITMAP: new Uint8Array([0x1D, 0x76, 0x30, 0x00]) // Print bitmap
   };
 
-  // Convert SVG to bitmap data for thermal printer
-  const convertSvgToBitmap = useCallback(async (svgUrl: string): Promise<Uint8Array> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        // Create canvas to convert SVG to bitmap
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Set canvas size (thermal printer width is typically 384 pixels for 58mm paper)
-        const maxWidth = 200; // Smaller logo size
-        const aspectRatio = img.height / img.width;
-        canvas.width = maxWidth;
-        canvas.height = maxWidth * aspectRatio;
-        
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-        
-        // Fill with white background
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw the image
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        // Get image data and convert to monochrome bitmap
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const pixels = imageData.data;
-        
-        // Convert to monochrome bitmap data for thermal printer
-        const width = canvas.width;
-        const height = canvas.height;
-        const bytesPerLine = Math.ceil(width / 8);
-        const bitmapData = new Uint8Array(bytesPerLine * height);
-        
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            const pixelIndex = (y * width + x) * 4;
-            const r = pixels[pixelIndex];
-            const g = pixels[pixelIndex + 1];
-            const b = pixels[pixelIndex + 2];
-            
-            // Convert to grayscale and threshold
-            const gray = (r + g + b) / 3;
-            const isBlack = gray < 128;
-            
-            if (isBlack) {
-              const byteIndex = y * bytesPerLine + Math.floor(x / 8);
-              const bitIndex = 7 - (x % 8);
-              bitmapData[byteIndex] |= (1 << bitIndex);
-            }
-          }
-        }
-        
-        // Create ESC/POS bitmap command
-        const command = new Uint8Array([
-          0x1D, 0x76, 0x30, 0x00, // GS v 0
-          width & 0xFF, (width >> 8) & 0xFF, // Width (little endian)
-          height & 0xFF, (height >> 8) & 0xFF, // Height (little endian)
-          ...bitmapData
-        ]);
-        
-        resolve(command);
-      };
-      
-      img.onerror = () => {
-        reject(new Error('Failed to load logo image'));
-      };
-      
-      img.src = svgUrl;
-    });
-  }, []);
-
-  const convertSvgToBitmap2 = useCallback(async (imgUrl: string): Promise<Uint8Array> => {
-      return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous"; // allow loading local/static assets
-  
-      img.onload = () => {
-        // Thermal printer paper width (58mm = ~384px max, 80mm = ~576px max)
-        const maxWidth = 384;
-        const aspectRatio = img.height / img.width;
-  
-        // Scale image
-        const targetWidth = Math.min(maxWidth, img.width);
-        const targetHeight = Math.round(targetWidth * aspectRatio);
-  
-        // Prepare canvas
-        const canvas = document.createElement("canvas");
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-        const ctx = canvas.getContext("2d");
-  
-        if (!ctx) {
-          reject(new Error("Could not get canvas context"));
-          return;
-        }
-  
-        // White background
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-  
-        // Draw logo
-        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-  
-        // Extract pixels
-        const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
-        const pixels = imageData.data;
-  
-        const width = targetWidth;
-        const height = targetHeight;
-        const bytesPerLine = Math.ceil(width / 8);
-        const bitmapData = new Uint8Array(bytesPerLine * height);
-  
-        // Convert RGBA → 1-bit bitmap
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            const pixelIndex = (y * width + x) * 4;
-            const r = pixels[pixelIndex];
-            const g = pixels[pixelIndex + 1];
-            const b = pixels[pixelIndex + 2];
-  
-            const gray = (r + g + b) / 3;
-            const isBlack = gray < 128;
-  
-            if (isBlack) {
-              const byteIndex = y * bytesPerLine + (x >> 3);
-              const bitIndex = 7 - (x % 8);
-              bitmapData[byteIndex] |= 1 << bitIndex;
-            }
-          }
-        }
-  
-        // ESC/POS header for raster bit image (GS v 0)
-        const xL = bytesPerLine & 0xff;
-        const xH = (bytesPerLine >> 8) & 0xff;
-        const yL = height & 0xff;
-        const yH = (height >> 8) & 0xff;
-  
-        const header = new Uint8Array([0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH]);
-  
-        // Alignment commands
-        const alignCenter = new Uint8Array([0x1b, 0x61, 0x01]); // ESC a 1
-        const alignLeft = new Uint8Array([0x1b, 0x61, 0x00]); // ESC a 0
-  
-        // Concatenate: center → image → back to left
-        const command = new Uint8Array(
-          alignCenter.length + header.length + bitmapData.length + alignLeft.length
-        );
-        command.set(alignCenter, 0);
-        command.set(header, alignCenter.length);
-        command.set(bitmapData, alignCenter.length + header.length);
-        command.set(alignLeft, alignCenter.length + header.length + bitmapData.length);
-  
-        resolve(command);
-      };
-  
-      img.onerror = () => reject(new Error("Failed to load logo image"));
-      img.src = imgUrl;
-    });
-  }, []);
-
-  
   const handleSaveSettings = useCallback((newPrinterSettings: ThermalPrinterSettings, newAnimalButtons: AnimalButton[]) => {
     setThermalPrinterSettings(newPrinterSettings);
     setAnimalButtons(newAnimalButtons);
@@ -310,16 +150,13 @@ function App() {
       const encoder = new TextEncoder();
       const writer = connection.writer;
 
-
-        await writer.write(ESC_POS.CENTER); // Center alignment
-        await writer.write(ESC_POS.LARGE_TEXT); // Large text
-        await writer.write(ESC_POS.BOLD_ON); // Bold on
-        await writer.write(encoder.encode(`Hard Plot Center`));
-        await writer.write(ESC_POS.BOLD_OFF); // Bold off
-        await writer.write(ESC_POS.FEED);
-        await writer.write(ESC_POS.FEED);
-
-      
+      await writer.write(ESC_POS.CENTER); // Center alignment
+      await writer.write(ESC_POS.LARGE_TEXT); // Large text
+      await writer.write(ESC_POS.BOLD_ON); // Bold on
+      await writer.write(encoder.encode(`Hard Plot Center`));
+      await writer.write(ESC_POS.BOLD_OFF); // Bold off
+      await writer.write(ESC_POS.FEED);
+      await writer.write(ESC_POS.FEED);
 
       // Print custom text if configured
       if (thermalPrinterSettings.customText.trim()) {
@@ -361,6 +198,78 @@ function App() {
     }
   }, [connection]);
 
+  const MainPage = () => (
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-400 rounded-r-lg">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-400 mr-3" />
+            <p className="text-red-700">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Last Printed Info */}
+      {lastPrinted && (
+        <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg">
+          <p className="text-green-700">
+            ✅ Successfully printed: <strong>{lastPrinted}</strong>
+          </p>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="bg-white rounded-xl shadow-xl p-8">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">Select an option</h2>
+          <p className="text-gray-600">Click any button to print the menu item on your LR2000 thermal printer</p>
+        </div>
+
+        {/* Animal Buttons Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+          {animalButtons.map((animal) => (
+            <button
+              key={animal.name}
+              onClick={() => printText(animal.name)}
+              disabled={!connection.connected}
+              className={`
+                ${animal.color} 
+                text-white font-bold text-xl py-8 px-6 rounded-xl
+                transform transition-all duration-200 
+                hover:scale-105 hover:shadow-lg
+                disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+                active:scale-95
+                flex flex-col items-center space-y-2
+              `}
+            >
+              <span className="text-4xl mb-2">{animal.emoji}</span>
+              <span>{animal.name}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Instructions */}
+        <div className="mt-12 p-6 bg-gray-50 rounded-lg">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">Instructions:</h3>
+          <ol className="list-decimal list-inside space-y-2 text-gray-600">
+            <li>Connect your LR2000 thermal printer via USB or Serial port</li>
+            <li>Click "Connect Printer" and select your printer from the list</li>
+            <li>Once connected, click any button to print</li>
+            <li>The printer will print the name with timestamp and cut the paper</li>
+          </ol>
+          
+          <div className="mt-4 p-3 bg-blue-50 rounded border-l-4 border-blue-400">
+            <p className="text-sm text-blue-700">
+              <strong>Note:</strong> This app uses the Web Serial API and requires a modern browser like Chrome. 
+              Make sure your printer is compatible with ESC/POS commands.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200">
       {/* Header */}
@@ -368,6 +277,15 @@ function App() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
+              {location.pathname !== '/' && (
+                <button
+                  onClick={() => navigate('/')}
+                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors mr-2"
+                  title="Back to Main"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
               <Printer className="w-8 h-8 text-gray-700" />
               <div className="flex items-center space-x-3">
                 <img src={hpcLogo} alt="HPC Logo" className="w-8 h-8" />
@@ -375,8 +293,19 @@ function App() {
               </div>
             </div>
             
-            {/* Connection Status */}
+            {/* Navigation & Connection Status */}
             <div className="flex items-center space-x-4">
+              {location.pathname === '/' && (
+                <button
+                  onClick={() => navigate('/form')}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  title="Business Form"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Business Form</span>
+                </button>
+              )}
+              
               <button
                 onClick={() => setShowSettings(true)}
                 className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -420,75 +349,19 @@ function App() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto p-6">
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-400 rounded-r-lg">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-400 mr-3" />
-              <p className="text-red-700">{error}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Last Printed Info */}
-        {lastPrinted && (
-          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg">
-            <p className="text-green-700">
-              ✅ Successfully printed: <strong>{lastPrinted}</strong>
-            </p>
-          </div>
-        )}
-
-        {/* Main Content */}
-        <div className="bg-white rounded-xl shadow-xl p-8">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">Select an optiont</h2>
-            <p className="text-gray-600">Click any button to print the animal name on your LR2000 thermal printer</p>
-          </div>
-
-          {/* Animal Buttons Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            {animalButtons.map((animal) => (
-              <button
-                key={animal.name}
-                onClick={() => printText(animal.name)}
-                disabled={!connection.connected}
-                className={`
-                  ${animal.color} 
-                  text-white font-bold text-xl py-8 px-6 rounded-xl
-                  transform transition-all duration-200 
-                  hover:scale-105 hover:shadow-lg
-                  disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
-                  active:scale-95
-                  flex flex-col items-center space-y-2
-                `}
-              >
-                <span className="text-4xl mb-2">{animal.emoji}</span>
-                <span>{animal.name}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Instructions */}
-          <div className="mt-12 p-6 bg-gray-50 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-800 mb-3">Instructions:</h3>
-            <ol className="list-decimal list-inside space-y-2 text-gray-600">
-              <li>Connect your LR2000 thermal printer via USB or Serial port</li>
-              <li>Click "Connect Printer" and select your printer from the list</li>
-              <li>Once connected, click any animal button to print</li>
-              <li>The printer will print the animal name with timestamp and cut the paper</li>
-            </ol>
-            
-            <div className="mt-4 p-3 bg-blue-50 rounded border-l-4 border-blue-400">
-              <p className="text-sm text-blue-700">
-                <strong>Note:</strong> This app uses the Web Serial API and requires a modern browser like Chrome. 
-                Make sure your printer is compatible with ESC/POS commands.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Routes */}
+      <Routes>
+        <Route path="/" element={<MainPage />} />
+        <Route 
+          path="/form" 
+          element={
+            <FormPage
+              onPrint={printText}
+              isConnected={connection.connected}
+            />
+          } 
+        />
+      </Routes>
 
       {/* Settings Modal */}
       <SettingsPage
