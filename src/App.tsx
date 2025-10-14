@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { Printer, Wifi, WifiOff, AlertCircle, Settings, FileText, ArrowLeft } from 'lucide-react';
+import { Printer, Wifi, WifiOff, AlertCircle, Settings, FileText, ArrowLeft, Globe } from 'lucide-react';
 import SettingsPage from './components/SettingsPage';
 import FormPage from './components/FormPage';
 import hpcLogo from './assets/hpc-logo.svg';
+import { getApiBaseUrl, updateApiBaseUrl, clearApiBaseUrl, getDefaultApiUrl, hasCustomApiUrl } from './config';
 
 interface SerialPortConnection {
   port: any | null; // SerialPort type from Web Serial API
@@ -61,6 +62,18 @@ function App() {
   const [lastPrinted, setLastPrinted] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showConnectionModal, setShowConnectionModal] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(false);
+  const [apiUrl, setApiUrl] = useState<string>(getApiBaseUrl());
+  const [customApiUrl, setCustomApiUrl] = useState<string>('');
+  
+  // Update API URL on mount
+  useEffect(() => {
+    const currentUrl = getApiBaseUrl();
+    setApiUrl(currentUrl);
+    if (hasCustomApiUrl()) {
+      setCustomApiUrl(currentUrl);
+    }
+  }, []);
   
   // Default settings - now configurable
   const [thermalPrinterSettings, setThermalPrinterSettings] = useState<ThermalPrinterSettings>({
@@ -111,6 +124,28 @@ function App() {
     }
   }, [connection.connected]);
 
+  const handleSaveApiUrl = useCallback(() => {
+    if (customApiUrl && customApiUrl.trim()) {
+      const url = customApiUrl.trim();
+      updateApiBaseUrl(url);
+      setApiUrl(url);
+      setError(null);
+      setShowApiSettings(false);
+      // Reload page to apply new API URL
+      window.location.reload();
+    }
+  }, [customApiUrl]);
+
+  const handleResetApiUrl = useCallback(() => {
+    clearApiBaseUrl();
+    const defaultUrl = getDefaultApiUrl();
+    setApiUrl(defaultUrl);
+    setCustomApiUrl('');
+    setShowApiSettings(false);
+    // Reload page to apply default API URL
+    window.location.reload();
+  }, []);
+
   const connectToSerialPrinter = useCallback(async () => {
     if (!('serial' in navigator)) {
       setError('Web Serial API not supported in this browser');
@@ -148,7 +183,7 @@ function App() {
 
     try {
       // Call backend API to list serial/COM ports
-      const response = await fetch('http://localhost:3001/api/printer/serial/list', {
+      const response = await fetch(`${apiUrl}/api/printer/serial/list`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -183,7 +218,7 @@ function App() {
 
     try {
       // Call backend API to discover network printers
-      const response = await fetch('http://localhost:3001/api/printer/discover', {
+      const response = await fetch(`${apiUrl}/api/printer/discover`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -222,7 +257,7 @@ function App() {
       }
 
       // Connect to serial printer via backend API
-      const response = await fetch('http://localhost:3001/api/printer/serial/connect', {
+      const response = await fetch(`${apiUrl}/api/printer/serial/connect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -268,7 +303,7 @@ function App() {
 
       // For network printers, we'll use a backend API endpoint
       // You'll need to set up a simple server that handles the network printing
-      const response = await fetch('http://localhost:3001/api/printer/connect', {
+      const response = await fetch(`${apiUrl}/api/printer/connect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -336,7 +371,7 @@ function App() {
     } else {
       // Disconnect network or serial-backend printer via API
       try {
-        await fetch('http://localhost:3001/api/printer/disconnect', { method: 'POST' });
+        await fetch(`${apiUrl}/api/printer/disconnect`, { method: 'POST' });
       } catch (err) {
         console.error('Error disconnecting printer:', err);
       }
@@ -344,7 +379,7 @@ function App() {
     }
 
     setError(null);
-  }, [connection, connectionType, networkConnection]);
+  }, [connection, connectionType, networkConnection, apiUrl]);
 
   const printText = useCallback(async (text: string) => {
     const isConnected = connectionType === 'serial' ? connection.connected : networkConnection.connected;
@@ -402,7 +437,7 @@ function App() {
         await writer.write(ESC_POS.CUT);
       } else if (connectionType === 'network' || connectionType === 'serial-backend') {
         // Send print job to network/serial-backend printer via backend API
-        const response = await fetch('http://localhost:3001/api/printer/print', {
+        const response = await fetch(`${apiUrl}/api/printer/print`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -426,7 +461,7 @@ function App() {
     } catch (err) {
       setError(`Print failed: ${(err as Error).message}`);
     }
-  }, [connection, connectionType, networkConnection, thermalPrinterSettings]);
+  }, [connection, connectionType, networkConnection, thermalPrinterSettings, apiUrl]);
 
   const MainPage = () => (
     <div className="max-w-4xl mx-auto p-6">
@@ -535,6 +570,14 @@ function App() {
                   <span>Business Form</span>
                 </button>
               )}
+              
+              <button
+                onClick={() => setShowApiSettings(true)}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="API Server Settings"
+              >
+                <Globe className="w-5 h-5" />
+              </button>
               
               <button
                 onClick={() => setShowSettings(true)}
@@ -819,6 +862,82 @@ function App() {
                 className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 transition-colors"
               >
                 {isConnecting ? 'Connecting...' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* API Settings Modal */}
+      {showApiSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">API Server Settings</h2>
+            
+            {/* Current API URL Display */}
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center mb-2">
+                <Globe className="w-5 h-5 text-blue-600 mr-2" />
+                <span className="text-sm font-semibold text-blue-800">Current API Server:</span>
+              </div>
+              <p className="text-sm text-blue-900 font-mono break-all">{apiUrl}</p>
+              {hasCustomApiUrl() && (
+                <p className="text-xs text-blue-600 mt-2">✓ Using custom URL (saved in localStorage)</p>
+              )}
+              {!hasCustomApiUrl() && (
+                <p className="text-xs text-blue-600 mt-2">ℹ Using automatic detection</p>
+              )}
+            </div>
+
+            {/* Custom URL Input */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Custom API Server URL
+              </label>
+              <input
+                type="text"
+                value={customApiUrl}
+                onChange={(e) => setCustomApiUrl(e.target.value)}
+                placeholder={getDefaultApiUrl()}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Example: http://192.168.1.100:3001
+              </p>
+            </div>
+
+            {/* Info Box */}
+            <div className="mb-6 p-3 bg-gray-50 rounded border-l-4 border-gray-400">
+              <p className="text-sm text-gray-700">
+                <strong>Note:</strong> This will override the automatic API URL detection. 
+                Leave empty to use automatic detection. Changes will persist across browser sessions.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowApiSettings(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              
+              {hasCustomApiUrl() && (
+                <button
+                  onClick={handleResetApiUrl}
+                  className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                >
+                  Reset to Default
+                </button>
+              )}
+              
+              <button
+                onClick={handleSaveApiUrl}
+                disabled={!customApiUrl || !customApiUrl.trim()}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+              >
+                Save & Reload
               </button>
             </div>
           </div>

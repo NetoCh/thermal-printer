@@ -506,29 +506,162 @@ app.get('/api/health', (req, res) => {
 });
 
 /**
- * Start server
+ * Get local IP address
  */
-app.listen(PORT, () => {
+function getLocalIpAddress() {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip internal (loopback) and non-IPv4 addresses
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+/**
+ * Get server information
+ */
+app.get('/api/server/info', (req, res) => {
+  const localIp = getLocalIpAddress();
+  
+  res.json({
+    success: true,
+    server: {
+      name: 'Thermal Printer API Server',
+      version: '1.0.0',
+      port: PORT,
+      urls: {
+        local: `http://localhost:${PORT}`,
+        network: `http://${localIp}:${PORT}`
+      },
+      capabilities: [
+        'Network Printer Support',
+        'Serial/COM Port Support',
+        'ESC/POS Commands',
+        'Auto-discovery'
+      ]
+    },
+    connection: {
+      connected: activeConnection.connection !== null,
+      type: activeConnection.type,
+      info: activeConnection.info
+    },
+    endpoints: {
+      info: {
+        path: '/api/server/info',
+        method: 'GET',
+        description: 'Get server information'
+      },
+      health: {
+        path: '/api/health',
+        method: 'GET',
+        description: 'Health check'
+      },
+      status: {
+        path: '/api/printer/status',
+        method: 'GET',
+        description: 'Get printer connection status'
+      },
+      serial: {
+        list: {
+          path: '/api/printer/serial/list',
+          method: 'GET',
+          description: 'List available COM/Serial ports'
+        },
+        connect: {
+          path: '/api/printer/serial/connect',
+          method: 'POST',
+          description: 'Connect to a COM/Serial port',
+          body: {
+            portPath: 'string (required)',
+            baudRate: 'number (optional, default: 19200)'
+          }
+        }
+      },
+      network: {
+        discover: {
+          path: '/api/printer/discover',
+          method: 'GET',
+          description: 'Discover network printers',
+          query: {
+            baseIP: 'string (optional, default: 192.168.1)'
+          }
+        },
+        connect: {
+          path: '/api/printer/connect',
+          method: 'POST',
+          description: 'Connect to a network printer',
+          body: {
+            ipAddress: 'string (required)',
+            port: 'number (required)'
+          }
+        }
+      },
+      common: {
+        disconnect: {
+          path: '/api/printer/disconnect',
+          method: 'POST',
+          description: 'Disconnect from printer'
+        },
+        print: {
+          path: '/api/printer/print',
+          method: 'POST',
+          description: 'Send print job to connected printer',
+          body: {
+            text: 'string (required)',
+            customText: 'string (optional)',
+            timestamp: 'string (optional)'
+          }
+        }
+      }
+    },
+    documentation: {
+      readme: 'See server/README.md for detailed documentation',
+      networkSetup: 'See NETWORK_SETUP.md for network configuration',
+      startup: 'See STARTUP_GUIDE.md for usage instructions'
+    }
+  });
+});
+
+/**
+ * Start server - Listen on all network interfaces (0.0.0.0)
+ */
+app.listen(PORT, '0.0.0.0', () => {
+  const localIp = getLocalIpAddress();
+  
   console.log(`
-  ╔═══════════════════════════════════════════╗
-  ║  Thermal Printer API Server               ║
-  ║  Running on: http://localhost:${PORT}     ║
-  ║                                           ║
-  ║  🖨️  Supports: Network + Serial/COM       ║
-  ║                                           ║
-  ║  Network Endpoints:                       ║
-  ║  GET  /api/printer/discover               ║
-  ║  POST /api/printer/connect                ║
-  ║                                           ║
-  ║  Serial/COM Endpoints:                    ║
-  ║  GET  /api/printer/serial/list            ║
-  ║  POST /api/printer/serial/connect         ║
-  ║                                           ║
-  ║  Common Endpoints:                        ║
-  ║  POST /api/printer/disconnect             ║
-  ║  POST /api/printer/print                  ║
-  ║  GET  /api/printer/status                 ║
-  ║  GET  /api/health                         ║
-  ╚═══════════════════════════════════════════╝
+  ╔═══════════════════════════════════════════════════════╗
+  ║  Thermal Printer API Server                           ║
+  ║                                                       ║
+  ║  🌐 Local:   http://localhost:${PORT}                      ║
+  ║  🌐 Network: http://${localIp}:${PORT}${' '.repeat(Math.max(0, 24 - localIp.length))}║
+  ║                                                       ║
+  ║  🖨️  Supports: Network + Serial/COM                   ║
+  ║                                                       ║
+  ║  📖 Server Info:                                      ║
+  ║  GET  /api/server/info                                ║
+  ║                                                       ║
+  ║  Network Endpoints:                                   ║
+  ║  GET  /api/printer/discover                           ║
+  ║  POST /api/printer/connect                            ║
+  ║                                                       ║
+  ║  Serial/COM Endpoints:                                ║
+  ║  GET  /api/printer/serial/list                        ║
+  ║  POST /api/printer/serial/connect                     ║
+  ║                                                       ║
+  ║  Common Endpoints:                                    ║
+  ║  POST /api/printer/disconnect                         ║
+  ║  POST /api/printer/print                              ║
+  ║  GET  /api/printer/status                             ║
+  ║  GET  /api/health                                     ║
+  ╚═══════════════════════════════════════════════════════╝
+  
+  💡 Other devices can access this API at: http://${localIp}:${PORT}
+  📖 Full API info available at: http://${localIp}:${PORT}/api/server/info
   `);
 });

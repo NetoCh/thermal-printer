@@ -36,6 +36,60 @@ The server will run on `http://localhost:3001`
 
 ## API Endpoints
 
+### Server Information Endpoint
+
+#### GET /api/server/info
+Get complete server information including URLs, capabilities, endpoints, and connection status.
+
+**Response:**
+```json
+{
+  "success": true,
+  "server": {
+    "name": "Thermal Printer API Server",
+    "version": "1.0.0",
+    "port": 3001,
+    "urls": {
+      "local": "http://localhost:3001",
+      "network": "http://192.168.1.100:3001"
+    },
+    "capabilities": [
+      "Network Printer Support",
+      "Serial/COM Port Support",
+      "ESC/POS Commands",
+      "Auto-discovery"
+    ]
+  },
+  "connection": {
+    "connected": true,
+    "type": "serial",
+    "info": {
+      "portPath": "COM3",
+      "baudRate": 19200
+    }
+  },
+  "endpoints": {
+    "info": {...},
+    "health": {...},
+    "status": {...},
+    "serial": {...},
+    "network": {...},
+    "common": {...}
+  },
+  "documentation": {
+    "readme": "See server/README.md for detailed documentation",
+    "networkSetup": "See NETWORK_SETUP.md for network configuration",
+    "startup": "See STARTUP_GUIDE.md for usage instructions"
+  }
+}
+```
+
+**Use Cases:**
+- Client discovery of server capabilities
+- Getting network URLs for other devices
+- API documentation endpoint
+- Service health monitoring
+
 ### Serial/COM Port Endpoints
 
 #### 1. List COM Ports
