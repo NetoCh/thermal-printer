@@ -25,7 +25,7 @@ interface ThermalPrinterSettings {
   customText: string;
 }
 
-type ConnectionType = 'serial' | 'network';
+type ConnectionType = 'serial' | 'network' | 'serial-backend';
 
 interface AnimalButton {
   name: string;
@@ -55,6 +55,8 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<Array<{ ipAddress: string; port: number; name?: string }>>([]);
+  const [discoveredSerialPorts, setDiscoveredSerialPorts] = useState<Array<{ path: string; manufacturer: string; name: string }>>([]);
+  const [selectedSerialPort, setSelectedSerialPort] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [lastPrinted, setLastPrinted] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -140,13 +142,48 @@ function App() {
     }
   }, [thermalPrinterSettings]);
 
+  const discoverSerialPorts = useCallback(async () => {
+    setIsDiscovering(true);
+    setError(null);
+
+    try {
+      // Call backend API to list serial/COM ports
+      const response = await fetch('http://localhost:3001/api/printer/serial/list', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to list serial ports');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.ports) {
+        setDiscoveredSerialPorts(result.ports);
+        if (result.ports.length === 0) {
+          setError('No serial/COM ports found. Make sure your printer is connected via USB.');
+        }
+      } else {
+        throw new Error(result.error || 'Failed to list serial ports');
+      }
+    } catch (err) {
+      setError(`Serial port discovery failed: ${(err as Error).message}. Make sure the backend API server is running.`);
+      setDiscoveredSerialPorts([]);
+    } finally {
+      setIsDiscovering(false);
+    }
+  }, []);
+
   const discoverNetworkPrinters = useCallback(async () => {
     setIsDiscovering(true);
     setError(null);
 
     try {
       // Call backend API to discover network printers
-      const response = await fetch('/api/printer/discover', {
+      const response = await fetch('http://localhost:3001/api/printer/discover', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -175,6 +212,51 @@ function App() {
     }
   }, []);
 
+  const connectToSerialBackend = useCallback(async () => {
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      if (!selectedSerialPort) {
+        throw new Error('Please select a COM port');
+      }
+
+      // Connect to serial printer via backend API
+      const response = await fetch('http://localhost:3001/api/printer/serial/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portPath: selectedSerialPort,
+          baudRate: thermalPrinterSettings.baudRate
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setNetworkConnection({
+          ipAddress: selectedSerialPort,
+          port: thermalPrinterSettings.baudRate,
+          connected: true
+        });
+        setError(null);
+      } else {
+        throw new Error(result.error || 'Failed to connect to serial printer');
+      }
+    } catch (err) {
+      setError(`Failed to connect to serial printer: ${(err as Error).message}. Make sure the backend API server is running.`);
+      setNetworkConnection({
+        ipAddress: '',
+        port: 0,
+        connected: false
+      });
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [selectedSerialPort, thermalPrinterSettings.baudRate]);
+
   const connectToNetworkPrinter = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
@@ -186,7 +268,7 @@ function App() {
 
       // For network printers, we'll use a backend API endpoint
       // You'll need to set up a simple server that handles the network printing
-      const response = await fetch('/api/printer/connect', {
+      const response = await fetch('http://localhost:3001/api/printer/connect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -224,11 +306,13 @@ function App() {
   const connectToPrinter = useCallback(async () => {
     if (connectionType === 'serial') {
       await connectToSerialPrinter();
+    } else if (connectionType === 'serial-backend') {
+      await connectToSerialBackend();
     } else {
       await connectToNetworkPrinter();
     }
     setShowConnectionModal(false);
-  }, [connectionType, connectToSerialPrinter, connectToNetworkPrinter]);
+  }, [connectionType, connectToSerialPrinter, connectToSerialBackend, connectToNetworkPrinter]);
 
   const disconnectPrinter = useCallback(async () => {
     if (connectionType === 'serial') {
@@ -250,11 +334,11 @@ function App() {
 
       setConnection({ port: null, writer: null, connected: false });
     } else {
-      // Disconnect network printer via API
+      // Disconnect network or serial-backend printer via API
       try {
-        await fetch('/api/printer/disconnect', { method: 'POST' });
+        await fetch('http://localhost:3001/api/printer/disconnect', { method: 'POST' });
       } catch (err) {
-        console.error('Error disconnecting network printer:', err);
+        console.error('Error disconnecting printer:', err);
       }
       setNetworkConnection({ ...networkConnection, connected: false });
     }
@@ -316,9 +400,9 @@ function App() {
         
         // Cut paper
         await writer.write(ESC_POS.CUT);
-      } else if (connectionType === 'network') {
-        // Send print job to network printer via backend API
-        const response = await fetch('/api/printer/print', {
+      } else if (connectionType === 'network' || connectionType === 'serial-backend') {
+        // Send print job to network/serial-backend printer via backend API
+        const response = await fetch('http://localhost:3001/api/printer/print', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -465,7 +549,11 @@ function App() {
                   <>
                     <Wifi className="w-5 h-5 text-green-500" />
                     <span className="text-green-600 font-medium">
-                      Connected {connectionType === 'network' ? '(Network)' : '(Serial)'}
+                      Connected {
+                        connectionType === 'network' ? '(Network)' : 
+                        connectionType === 'serial-backend' ? '(COM Port)' : 
+                        '(Serial)'
+                      }
                     </span>
                   </>
                 ) : (
@@ -542,8 +630,23 @@ function App() {
                     className="w-4 h-4 text-blue-600"
                   />
                   <div className="ml-3">
-                    <div className="font-medium text-gray-900">USB/Serial Port</div>
-                    <div className="text-sm text-gray-500">Direct connection via USB or Serial cable</div>
+                    <div className="font-medium text-gray-900">USB/Serial Port (Browser)</div>
+                    <div className="text-sm text-gray-500">Direct browser connection via Web Serial API</div>
+                  </div>
+                </label>
+                
+                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="connectionType"
+                    value="serial-backend"
+                    checked={connectionType === 'serial-backend'}
+                    onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div className="ml-3">
+                    <div className="font-medium text-gray-900">COM Port (Backend)</div>
+                    <div className="text-sm text-gray-500">Server-managed COM/Serial port connection</div>
                   </div>
                 </label>
                 
@@ -563,6 +666,62 @@ function App() {
                 </label>
               </div>
             </div>
+
+            {/* Serial/COM Port Settings (Backend) */}
+            {connectionType === 'serial-backend' && (
+              <div className="mb-6 space-y-4">
+                {/* Auto-discover Button */}
+                <div>
+                  <button
+                    onClick={discoverSerialPorts}
+                    disabled={isDiscovering}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <Printer className="w-5 h-5" />
+                    <span>{isDiscovering ? 'Scanning COM ports...' : 'List COM Ports'}</span>
+                  </button>
+                </div>
+
+                {/* Discovered Serial Ports List */}
+                {discoveredSerialPorts.length > 0 && (
+                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <h4 className="text-sm font-semibold text-green-800 mb-3">Found {discoveredSerialPorts.length} COM port(s):</h4>
+                    <div className="space-y-2">
+                      {discoveredSerialPorts.map((port, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setSelectedSerialPort(port.path)}
+                          className={`w-full p-3 bg-white rounded-lg border-2 transition-colors text-left ${
+                            selectedSerialPort === port.path ? 'border-green-500' : 'border-transparent hover:border-green-300'
+                          }`}
+                        >
+                          <div className="font-medium text-gray-900">
+                            {port.name}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {port.path} - {port.manufacturer}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedSerialPort && (
+                  <div className="p-3 bg-blue-50 rounded border-l-4 border-blue-400">
+                    <p className="text-sm text-blue-700">
+                      <strong>Selected:</strong> {selectedSerialPort}
+                      <br />
+                      <strong>Baud Rate:</strong> {thermalPrinterSettings.baudRate}
+                    </p>
+                  </div>
+                )}
+
+                <div className="text-sm text-gray-600">
+                  <strong>Note:</strong> COM port connections are managed by the backend server. Make sure your thermal printer is connected via USB cable and the backend API server is running.
+                </div>
+              </div>
+            )}
 
             {/* Network Printer Settings */}
             {connectionType === 'network' && (

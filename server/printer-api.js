@@ -1,6 +1,7 @@
 const express = require('express');
 const net = require('net');
 const cors = require('cors');
+const { SerialPort } = require('serialport');
 
 const app = express();
 const PORT = 3001;
@@ -8,8 +9,12 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Store active printer connection
-let activePrinterConnection = null;
+// Store active printer connections
+let activeConnection = {
+  type: null, // 'network' or 'serial'
+  connection: null, // Socket or SerialPort instance
+  info: {} // Connection details (IP, port, or COM port path)
+};
 
 // ESC/POS commands
 const ESC_POS = {
@@ -25,17 +30,92 @@ const ESC_POS = {
 };
 
 /**
+ * ========================================
+ * SERIAL PORT (COM) FUNCTIONS
+ * ========================================
+ */
+
+/**
+ * List all available serial/COM ports
+ */
+async function listSerialPorts() {
+  try {
+    const ports = await SerialPort.list();
+    
+    // Filter and format ports (only show likely printer ports)
+    const formattedPorts = ports.map(port => ({
+      path: port.path,
+      manufacturer: port.manufacturer || 'Unknown',
+      serialNumber: port.serialNumber || 'N/A',
+      vendorId: port.vendorId || 'N/A',
+      productId: port.productId || 'N/A',
+      name: port.friendlyName || port.path
+    }));
+    
+    console.log(`Found ${formattedPorts.length} serial port(s)`);
+    return formattedPorts;
+  } catch (error) {
+    console.error('Error listing serial ports:', error);
+    throw error;
+  }
+}
+
+/**
+ * Connect to a serial/COM port printer
+ */
+async function connectToSerialPort(portPath, baudRate = 19200) {
+  return new Promise((resolve, reject) => {
+    try {
+      const port = new SerialPort({
+        path: portPath,
+        baudRate: baudRate,
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none'
+      });
+
+      port.on('open', () => {
+        console.log(`Connected to serial printer at ${portPath}`);
+        
+        // Initialize printer
+        port.write(ESC_POS.INIT, (err) => {
+          if (err) {
+            console.error('Error initializing printer:', err);
+            port.close();
+            reject(err);
+          } else {
+            resolve(port);
+          }
+        });
+      });
+
+      port.on('error', (err) => {
+        console.error('Serial port error:', err);
+        reject(err);
+      });
+
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
+ * ========================================
+ * NETWORK PRINTER FUNCTIONS
+ * ========================================
+ */
+
+/**
  * Scan for network printers on the local network
- * This checks common printer ports (9100, 515) on local IP range
  */
 async function scanForPrinters(baseIP = '192.168.1') {
   const printers = [];
   const ports = [9100, 515]; // 9100 = RAW printing, 515 = LPD
-  const timeout = 500; // 500ms timeout per IP
+  const timeout = 500;
   
   console.log(`Scanning network ${baseIP}.x for printers...`);
   
-  // Scan IPs from 1 to 254
   const promises = [];
   
   for (let i = 1; i <= 254; i++) {
@@ -46,17 +126,15 @@ async function scanForPrinters(baseIP = '192.168.1') {
     }
   }
   
-  // Wait for all scans to complete
   const results = await Promise.allSettled(promises);
   
-  // Collect successful connections
   results.forEach(result => {
     if (result.status === 'fulfilled' && result.value) {
       printers.push(result.value);
     }
   });
   
-  console.log(`Found ${printers.length} printer(s)`);
+  console.log(`Found ${printers.length} network printer(s)`);
   return printers;
 }
 
@@ -76,7 +154,7 @@ function checkPrinterAtAddress(ip, port, timeout) {
       clearTimeout(timer);
       socket.destroy();
       
-      console.log(`Found printer at ${ip}:${port}`);
+      console.log(`Found network printer at ${ip}:${port}`);
       resolve({
         ipAddress: ip,
         port: port,
@@ -92,15 +170,209 @@ function checkPrinterAtAddress(ip, port, timeout) {
 }
 
 /**
- * API Endpoints
+ * Connect to a network printer
+ */
+async function connectToNetworkPrinter(ipAddress, port) {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+    
+    const timeout = setTimeout(() => {
+      reject(new Error('Connection timeout'));
+    }, 5000);
+    
+    socket.connect(port, ipAddress, () => {
+      clearTimeout(timeout);
+      console.log(`Connected to network printer at ${ipAddress}:${port}`);
+      
+      // Initialize printer
+      socket.write(ESC_POS.INIT);
+      
+      resolve(socket);
+    });
+    
+    socket.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
+
+/**
+ * ========================================
+ * UNIFIED PRINT FUNCTION
+ * ========================================
  */
 
-// Discover network printers
+/**
+ * Send data to printer (works for both serial and network)
+ */
+async function sendToPrinter(buffer) {
+  return new Promise((resolve, reject) => {
+    if (!activeConnection.connection) {
+      reject(new Error('No printer connected'));
+      return;
+    }
+
+    const connection = activeConnection.connection;
+    
+    connection.write(buffer, (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+/**
+ * Build print buffer with ESC/POS commands
+ */
+function buildPrintBuffer(text, customText, timestamp) {
+  const commands = [];
+  
+  // Header
+  commands.push(ESC_POS.CENTER);
+  commands.push(ESC_POS.LARGE_TEXT);
+  commands.push(ESC_POS.BOLD_ON);
+  commands.push(Buffer.from('Hard Plot Center'));
+  commands.push(ESC_POS.BOLD_OFF);
+  commands.push(ESC_POS.FEED);
+  commands.push(ESC_POS.FEED);
+  
+  // Custom text if provided
+  if (customText && customText.trim()) {
+    commands.push(ESC_POS.CENTER);
+    commands.push(ESC_POS.NORMAL_TEXT);
+    commands.push(ESC_POS.BOLD_ON);
+    commands.push(Buffer.from(customText));
+    commands.push(ESC_POS.BOLD_OFF);
+    commands.push(ESC_POS.FEED);
+    commands.push(ESC_POS.FEED);
+  }
+  
+  // Main text
+  commands.push(ESC_POS.CENTER);
+  commands.push(ESC_POS.LARGE_TEXT);
+  commands.push(ESC_POS.BOLD_ON);
+  commands.push(Buffer.from(text));
+  commands.push(ESC_POS.FEED);
+  commands.push(ESC_POS.FEED);
+  
+  // Timestamp
+  commands.push(ESC_POS.NORMAL_TEXT);
+  commands.push(ESC_POS.BOLD_OFF);
+  commands.push(Buffer.from(`Printed: ${timestamp}`));
+  commands.push(ESC_POS.FEED);
+  commands.push(ESC_POS.FEED);
+  commands.push(ESC_POS.FEED);
+  
+  // Cut paper
+  commands.push(ESC_POS.CUT);
+  
+  return Buffer.concat(commands);
+}
+
+/**
+ * Disconnect active printer
+ */
+function disconnectPrinter() {
+  if (activeConnection.connection) {
+    try {
+      if (activeConnection.type === 'serial') {
+        activeConnection.connection.close();
+      } else if (activeConnection.type === 'network') {
+        activeConnection.connection.destroy();
+      }
+      console.log(`Disconnected from ${activeConnection.type} printer`);
+    } catch (err) {
+      console.error('Error disconnecting:', err);
+    }
+  }
+  
+  activeConnection = {
+    type: null,
+    connection: null,
+    info: {}
+  };
+}
+
+/**
+ * ========================================
+ * API ENDPOINTS
+ * ========================================
+ */
+
+/**
+ * List available serial/COM ports
+ */
+app.get('/api/printer/serial/list', async (req, res) => {
+  try {
+    const ports = await listSerialPorts();
+    
+    res.json({
+      success: true,
+      ports: ports
+    });
+  } catch (error) {
+    console.error('Error listing serial ports:', error);
+    res.json({
+      success: false,
+      error: error.message,
+      ports: []
+    });
+  }
+});
+
+/**
+ * Connect to serial/COM port printer
+ */
+app.post('/api/printer/serial/connect', async (req, res) => {
+  const { portPath, baudRate } = req.body;
+  
+  if (!portPath) {
+    return res.json({
+      success: false,
+      error: 'Port path is required'
+    });
+  }
+  
+  try {
+    // Disconnect any existing connection
+    disconnectPrinter();
+    
+    // Connect to serial port
+    const serialPort = await connectToSerialPort(portPath, baudRate || 19200);
+    
+    activeConnection = {
+      type: 'serial',
+      connection: serialPort,
+      info: { portPath, baudRate: baudRate || 19200 }
+    };
+    
+    res.json({
+      success: true,
+      message: `Connected to serial printer at ${portPath}`,
+      connectionType: 'serial'
+    });
+    
+  } catch (error) {
+    console.error('Serial connection error:', error);
+    disconnectPrinter();
+    
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Discover network printers
+ */
 app.get('/api/printer/discover', async (req, res) => {
   try {
-    // Get the base IP from query or use default
     const baseIP = req.query.baseIP || '192.168.1';
-    
     const printers = await scanForPrinters(baseIP);
     
     res.json({
@@ -117,7 +389,9 @@ app.get('/api/printer/discover', async (req, res) => {
   }
 });
 
-// Connect to a specific network printer
+/**
+ * Connect to network printer
+ */
 app.post('/api/printer/connect', async (req, res) => {
   const { ipAddress, port } = req.body;
   
@@ -129,43 +403,27 @@ app.post('/api/printer/connect', async (req, res) => {
   }
   
   try {
-    // Close existing connection if any
-    if (activePrinterConnection) {
-      activePrinterConnection.destroy();
-    }
+    // Disconnect any existing connection
+    disconnectPrinter();
     
-    // Create new connection
-    activePrinterConnection = new net.Socket();
+    // Connect to network printer
+    const socket = await connectToNetworkPrinter(ipAddress, port);
     
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'));
-      }, 5000);
-      
-      activePrinterConnection.connect(port, ipAddress, () => {
-        clearTimeout(timeout);
-        console.log(`Connected to printer at ${ipAddress}:${port}`);
-        
-        // Initialize printer
-        activePrinterConnection.write(ESC_POS.INIT);
-        
-        resolve();
-      });
-      
-      activePrinterConnection.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    activeConnection = {
+      type: 'network',
+      connection: socket,
+      info: { ipAddress, port }
+    };
     
     res.json({
       success: true,
-      message: `Connected to ${ipAddress}:${port}`
+      message: `Connected to network printer at ${ipAddress}:${port}`,
+      connectionType: 'network'
     });
     
   } catch (error) {
-    console.error('Connection error:', error);
-    activePrinterConnection = null;
+    console.error('Network connection error:', error);
+    disconnectPrinter();
     
     res.json({
       success: false,
@@ -174,25 +432,25 @@ app.post('/api/printer/connect', async (req, res) => {
   }
 });
 
-// Disconnect from printer
+/**
+ * Disconnect from printer (works for both serial and network)
+ */
 app.post('/api/printer/disconnect', (req, res) => {
-  if (activePrinterConnection) {
-    activePrinterConnection.destroy();
-    activePrinterConnection = null;
-    console.log('Disconnected from printer');
-  }
+  disconnectPrinter();
   
   res.json({
     success: true,
-    message: 'Disconnected'
+    message: 'Disconnected from printer'
   });
 });
 
-// Print to network printer
+/**
+ * Print to printer (works for both serial and network)
+ */
 app.post('/api/printer/print', async (req, res) => {
   const { text, customText, timestamp } = req.body;
   
-  if (!activePrinterConnection) {
+  if (!activeConnection.connection) {
     return res.json({
       success: false,
       error: 'Printer not connected'
@@ -200,66 +458,18 @@ app.post('/api/printer/print', async (req, res) => {
   }
   
   try {
-    // Build print job
-    const commands = [];
+    // Build print buffer
+    const printBuffer = buildPrintBuffer(text, customText, timestamp);
     
-    // Header
-    commands.push(ESC_POS.CENTER);
-    commands.push(ESC_POS.LARGE_TEXT);
-    commands.push(ESC_POS.BOLD_ON);
-    commands.push(Buffer.from('Hard Plot Center'));
-    commands.push(ESC_POS.BOLD_OFF);
-    commands.push(ESC_POS.FEED);
-    commands.push(ESC_POS.FEED);
+    // Send to printer
+    await sendToPrinter(printBuffer);
     
-    // Custom text if provided
-    if (customText && customText.trim()) {
-      commands.push(ESC_POS.CENTER);
-      commands.push(ESC_POS.NORMAL_TEXT);
-      commands.push(ESC_POS.BOLD_ON);
-      commands.push(Buffer.from(customText));
-      commands.push(ESC_POS.BOLD_OFF);
-      commands.push(ESC_POS.FEED);
-      commands.push(ESC_POS.FEED);
-    }
-    
-    // Main text
-    commands.push(ESC_POS.CENTER);
-    commands.push(ESC_POS.LARGE_TEXT);
-    commands.push(ESC_POS.BOLD_ON);
-    commands.push(Buffer.from(text));
-    commands.push(ESC_POS.FEED);
-    commands.push(ESC_POS.FEED);
-    
-    // Timestamp
-    commands.push(ESC_POS.NORMAL_TEXT);
-    commands.push(ESC_POS.BOLD_OFF);
-    commands.push(Buffer.from(`Printed: ${timestamp}`));
-    commands.push(ESC_POS.FEED);
-    commands.push(ESC_POS.FEED);
-    commands.push(ESC_POS.FEED);
-    
-    // Cut paper
-    commands.push(ESC_POS.CUT);
-    
-    // Send all commands
-    const printBuffer = Buffer.concat(commands);
-    
-    await new Promise((resolve, reject) => {
-      activePrinterConnection.write(printBuffer, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-    
-    console.log(`Printed: ${text}`);
+    console.log(`Printed via ${activeConnection.type}: ${text}`);
     
     res.json({
       success: true,
-      message: 'Print job sent successfully'
+      message: 'Print job sent successfully',
+      connectionType: activeConnection.type
     });
     
   } catch (error) {
@@ -271,28 +481,54 @@ app.post('/api/printer/print', async (req, res) => {
   }
 });
 
-// Health check
+/**
+ * Get connection status
+ */
+app.get('/api/printer/status', (req, res) => {
+  res.json({
+    success: true,
+    connected: activeConnection.connection !== null,
+    connectionType: activeConnection.type,
+    info: activeConnection.info
+  });
+});
+
+/**
+ * Health check
+ */
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'Printer API server is running',
-    connected: activePrinterConnection !== null
+    connected: activeConnection.connection !== null,
+    connectionType: activeConnection.type
   });
 });
 
+/**
+ * Start server
+ */
 app.listen(PORT, () => {
   console.log(`
   ╔═══════════════════════════════════════════╗
   ║  Thermal Printer API Server               ║
-  ║  Running on: http://localhost:${PORT}       ║
+  ║  Running on: http://localhost:${PORT}     ║
   ║                                           ║
-  ║  Endpoints:                               ║
+  ║  🖨️  Supports: Network + Serial/COM       ║
+  ║                                           ║
+  ║  Network Endpoints:                       ║
   ║  GET  /api/printer/discover               ║
   ║  POST /api/printer/connect                ║
+  ║                                           ║
+  ║  Serial/COM Endpoints:                    ║
+  ║  GET  /api/printer/serial/list            ║
+  ║  POST /api/printer/serial/connect         ║
+  ║                                           ║
+  ║  Common Endpoints:                        ║
   ║  POST /api/printer/disconnect             ║
   ║  POST /api/printer/print                  ║
+  ║  GET  /api/printer/status                 ║
   ║  GET  /api/health                         ║
   ╚═══════════════════════════════════════════╝
   `);
 });
-
