@@ -464,35 +464,35 @@ function App() {
   }, [connection, connectionType, networkConnection, thermalPrinterSettings, apiUrl]);
 
   const MainPage = () => (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
       {/* Error Message */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-400 rounded-r-lg">
-          <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-400 mr-3" />
-            <p className="text-red-700">{error}</p>
+        <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border-l-4 border-red-400 rounded-r-lg">
+          <div className="flex items-start sm:items-center">
+            <AlertCircle className="w-5 h-5 text-red-400 mr-2 sm:mr-3 flex-shrink-0 mt-0.5 sm:mt-0" />
+            <p className="text-sm sm:text-base text-red-700">{error}</p>
           </div>
         </div>
       )}
 
       {/* Last Printed Info */}
       {lastPrinted && (
-        <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg">
-          <p className="text-green-700">
-            ✅ Successfully printed: <strong>{lastPrinted}</strong>
+        <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-50 border-l-4 border-green-400 rounded-r-lg">
+          <p className="text-sm sm:text-base text-green-700">
+            ✅ Successfully printed: <strong className="break-words">{lastPrinted}</strong>
           </p>
         </div>
       )}
 
       {/* Main Content */}
-      <div className="bg-white rounded-xl shadow-xl p-8">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">Select an option</h2>
-          <p className="text-gray-600">Click any button to print the menu item on your LR2000 thermal printer</p>
+      <div className="bg-white rounded-xl shadow-xl p-4 sm:p-6 lg:p-8">
+        <div className="text-center mb-6 sm:mb-8">
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Select an option</h2>
+          <p className="text-sm sm:text-base text-gray-600">Click any button to print the menu item on your LR2000 thermal printer</p>
         </div>
 
-        {/* Animal Buttons Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+        {/* Animal Buttons Grid - Responsive: 1 col on mobile, 2 on tablet, 3 on desktop */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6 max-w-5xl mx-auto">
           {animalButtons.map((animal) => (
             <button
               key={animal.name}
@@ -500,24 +500,26 @@ function App() {
               disabled={!(connection.connected || networkConnection.connected)}
               className={`
                 ${animal.color} 
-                text-white font-bold text-xl py-8 px-6 rounded-xl
+                text-white font-bold text-base sm:text-lg lg:text-xl 
+                py-6 sm:py-7 lg:py-8 px-4 sm:px-5 lg:px-6 rounded-xl
                 transform transition-all duration-200 
                 hover:scale-105 hover:shadow-lg
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
                 active:scale-95
-                flex flex-col items-center space-y-2
+                flex flex-col items-center justify-center space-y-1 sm:space-y-2
+                min-h-[120px] sm:min-h-[140px]
               `}
             >
-              <span className="text-4xl mb-2">{animal.emoji}</span>
-              <span>{animal.name}</span>
+              <span className="text-3xl sm:text-4xl mb-1 sm:mb-2">{animal.emoji}</span>
+              <span className="text-center leading-tight">{animal.name}</span>
             </button>
           ))}
         </div>
 
         {/* Instructions */}
-        <div className="mt-12 p-6 bg-gray-50 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Instructions:</h3>
-          <ol className="list-decimal list-inside space-y-2 text-gray-600">
+        <div className="mt-8 sm:mt-12 p-4 sm:p-6 bg-gray-50 rounded-lg">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-3">Instructions:</h3>
+          <ol className="list-decimal list-inside space-y-2 text-sm sm:text-base text-gray-600">
             <li>Connect your LR2000 thermal printer via USB or Serial port</li>
             <li>Click "Connect Printer" and select your printer from the list</li>
             <li>Once connected, click any button to print</li>
@@ -525,7 +527,7 @@ function App() {
           </ol>
           
           <div className="mt-4 p-3 bg-blue-50 rounded border-l-4 border-blue-400">
-            <p className="text-sm text-blue-700">
+            <p className="text-xs sm:text-sm text-blue-700">
               <strong>Note:</strong> This app uses the Web Serial API and requires a modern browser like Chrome. 
               Make sure your printer is compatible with ESC/POS commands.
             </p>
@@ -537,29 +539,82 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200">
-      {/* Header */}
+      {/* Header - Fully Responsive */}
       <div className="bg-white shadow-lg border-b">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          {/* Top Row: Logo and Title */}
+          <div className="flex items-center justify-between mb-3 sm:mb-0">
+            <div className="flex items-center space-x-2 sm:space-x-3">
               {location.pathname !== '/' && (
                 <button
                   onClick={() => navigate('/')}
-                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors mr-2"
+                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                   title="Back to Main"
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
               )}
-              <Printer className="w-8 h-8 text-gray-700" />
-              <div className="flex items-center space-x-3">
-                <img src={hpcLogo} alt="HPC Logo" className="w-8 h-8" />
-                <h1 className="text-2xl font-bold text-gray-800">Hard Plot Center</h1>
+              <Printer className="w-6 h-6 sm:w-8 sm:h-8 text-gray-700" />
+              <div className="flex items-center space-x-2 sm:space-x-3">
+                <img src={hpcLogo} alt="HPC Logo" className="w-6 h-6 sm:w-8 sm:h-8" />
+                <h1 className="text-lg sm:text-2xl font-bold text-gray-800">Hard Plot Center</h1>
               </div>
             </div>
             
-            {/* Navigation & Connection Status */}
-            <div className="flex items-center space-x-4">
+            {/* Mobile: Quick Action Icons */}
+            <div className="flex sm:hidden items-center space-x-2">
+              {location.pathname === '/' && (
+                <button
+                  onClick={() => navigate('/form')}
+                  className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  title="Business Form"
+                >
+                  <FileText className="w-5 h-5" />
+                </button>
+              )}
+              <button
+                onClick={() => setShowApiSettings(true)}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="API Server Settings"
+              >
+                <Globe className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          
+          {/* Bottom Row: Connection Status and Actions */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            {/* Connection Status */}
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              {(connection.connected || networkConnection.connected) ? (
+                <>
+                  <Wifi className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm sm:text-base text-green-600 font-medium truncate">
+                    Connected
+                    <span className="hidden md:inline"> {
+                      connectionType === 'network' ? '(Network)' : 
+                      connectionType === 'serial-backend' ? '(COM Port)' : 
+                      '(Serial)'
+                    }</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-5 h-5 text-red-500 flex-shrink-0" />
+                  <span className="text-sm sm:text-base text-red-600 font-medium">Disconnected</span>
+                </>
+              )}
+            </div>
+            
+            {/* Desktop: Navigation & Connection Actions */}
+            <div className="hidden sm:flex items-center gap-3 flex-wrap">
               {location.pathname === '/' && (
                 <button
                   onClick={() => navigate('/form')}
@@ -587,26 +642,6 @@ function App() {
                 <Settings className="w-5 h-5" />
               </button>
               
-              <div className="flex items-center space-x-2">
-                {(connection.connected || networkConnection.connected) ? (
-                  <>
-                    <Wifi className="w-5 h-5 text-green-500" />
-                    <span className="text-green-600 font-medium">
-                      Connected {
-                        connectionType === 'network' ? '(Network)' : 
-                        connectionType === 'serial-backend' ? '(COM Port)' : 
-                        '(Serial)'
-                      }
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="w-5 h-5 text-red-500" />
-                    <span className="text-red-600 font-medium">Disconnected</span>
-                  </>
-                )}
-              </div>
-              
               {(connection.connected || networkConnection.connected) ? (
                 <button
                   onClick={disconnectPrinter}
@@ -619,6 +654,26 @@ function App() {
                   onClick={() => setShowConnectionModal(true)}
                   disabled={isConnecting}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 transition-colors"
+                >
+                  {isConnecting ? 'Connecting...' : 'Connect Printer'}
+                </button>
+              )}
+            </div>
+            
+            {/* Mobile: Connection Button (Full Width) */}
+            <div className="flex sm:hidden w-full">
+              {(connection.connected || networkConnection.connected) ? (
+                <button
+                  onClick={disconnectPrinter}
+                  className="w-full px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium"
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowConnectionModal(true)}
+                  disabled={isConnecting}
+                  className="w-full px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 transition-colors font-medium"
                 >
                   {isConnecting ? 'Connecting...' : 'Connect Printer'}
                 </button>
@@ -651,11 +706,11 @@ function App() {
         onSaveSettings={handleSaveSettings}
       />
 
-      {/* Connection Modal */}
+      {/* Connection Modal - Responsive & Scrollable */}
       {showConnectionModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Connect Printer</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl p-4 sm:p-6 lg:p-8 max-w-2xl w-full my-8">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Connect Printer</h2>
             
             {/* Connection Type Selection */}
             <div className="mb-6">
@@ -868,29 +923,29 @@ function App() {
         </div>
       )}
 
-      {/* API Settings Modal */}
+      {/* API Settings Modal - Responsive & Scrollable */}
       {showApiSettings && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">API Server Settings</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl p-4 sm:p-6 lg:p-8 max-w-2xl w-full my-8">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">API Server Settings</h2>
             
             {/* Current API URL Display */}
-            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center mb-2">
-                <Globe className="w-5 h-5 text-blue-600 mr-2" />
-                <span className="text-sm font-semibold text-blue-800">Current API Server:</span>
+                <Globe className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-semibold text-blue-800">Current API Server:</span>
               </div>
-              <p className="text-sm text-blue-900 font-mono break-all">{apiUrl}</p>
+              <p className="text-xs sm:text-sm text-blue-900 font-mono break-all">{apiUrl}</p>
               {hasCustomApiUrl() && (
                 <p className="text-xs text-blue-600 mt-2">✓ Using custom URL (saved in localStorage)</p>
               )}
               {!hasCustomApiUrl() && (
-                <p className="text-xs text-blue-600 mt-2">ℹ Using automatic detection</p>
+                <p className="text-xs text-blue-600 mt-2">ℹ Using automatic detection (current host + port 3001)</p>
               )}
             </div>
 
             {/* Custom URL Input */}
-            <div className="mb-6">
+            <div className="mb-4 sm:mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Custom API Server URL
               </label>
@@ -899,26 +954,29 @@ function App() {
                 value={customApiUrl}
                 onChange={(e) => setCustomApiUrl(e.target.value)}
                 placeholder={getDefaultApiUrl()}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-xs sm:text-sm"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Example: http://192.168.1.100:3001
+                <strong>Default:</strong> {getDefaultApiUrl()} (auto-detected)
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                <strong>Example:</strong> http://192.168.1.100:3001 or https://abc.ngrok.io
               </p>
             </div>
 
             {/* Info Box */}
-            <div className="mb-6 p-3 bg-gray-50 rounded border-l-4 border-gray-400">
-              <p className="text-sm text-gray-700">
-                <strong>Note:</strong> This will override the automatic API URL detection. 
-                Leave empty to use automatic detection. Changes will persist across browser sessions.
+            <div className="mb-4 sm:mb-6 p-3 bg-gray-50 rounded border-l-4 border-gray-400">
+              <p className="text-xs sm:text-sm text-gray-700">
+                <strong>💡 Smart Default:</strong> The API automatically uses your current host ({window.location.hostname}) with port 3001. 
+                Only change this if your backend is on a different server or uses ngrok.
               </p>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex space-x-3">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <button
                 onClick={() => setShowApiSettings(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                className="w-full sm:flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
               >
                 Cancel
               </button>
@@ -926,7 +984,7 @@ function App() {
               {hasCustomApiUrl() && (
                 <button
                   onClick={handleResetApiUrl}
-                  className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                  className="w-full sm:flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
                 >
                   Reset to Default
                 </button>
@@ -935,7 +993,7 @@ function App() {
               <button
                 onClick={handleSaveApiUrl}
                 disabled={!customApiUrl || !customApiUrl.trim()}
-                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+                className="w-full sm:flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
               >
                 Save & Reload
               </button>

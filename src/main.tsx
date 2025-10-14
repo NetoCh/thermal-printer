@@ -4,8 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
 
-// Auto-detect basename: use '/thermal-printer' in production, '/' in development
-const basename = import.meta.env.DEV ? '/' : '/thermal-printer';
+// Auto-detect basename based on hostname
+// Use '/thermal-printer' only on GitHub Pages, '/' everywhere else
+const basename = window.location.hostname.includes('github.io') ? '/thermal-printer' : '/';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

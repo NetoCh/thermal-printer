@@ -10,8 +10,7 @@ const STORAGE_KEY = 'thermal_printer_api_url';
  * Priority:
  * 1. LocalStorage (user-configured)
  * 2. Environment variable (VITE_API_URL)
- * 3. Same host as frontend (for network deployment)
- * 4. Localhost (for local development)
+ * 3. Current host with port 3001 (smart default for network access)
  */
 export function getApiBaseUrl(): string {
   // Check localStorage first (user preference)
@@ -25,17 +24,12 @@ export function getApiBaseUrl(): string {
     return import.meta.env.VITE_API_URL;
   }
   
-  // Check if we're in production (built app)
-  if (import.meta.env.PROD) {
-    // Use the same host as the frontend
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const port = 3001; // Backend port
-    return `${protocol}//${hostname}:${port}`;
-  }
-  
-  // Development mode - use localhost
-  return 'http://localhost:3001';
+  // Smart default: Use the current host with port 3001
+  // This works for localhost, network IP, and deployed domains
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  const port = 3001; // Backend API port
+  return `${protocol}//${hostname}:${port}`;
 }
 
 /**
@@ -56,6 +50,7 @@ export function clearApiBaseUrl(): void {
 
 /**
  * Get the default API URL (without localStorage override)
+ * Always returns the smart default: current host with port 3001
  */
 export function getDefaultApiUrl(): string {
   // Check for environment variable
@@ -63,16 +58,11 @@ export function getDefaultApiUrl(): string {
     return import.meta.env.VITE_API_URL;
   }
   
-  // Check if we're in production
-  if (import.meta.env.PROD) {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const port = 3001;
-    return `${protocol}//${hostname}:${port}`;
-  }
-  
-  // Development mode
-  return 'http://localhost:3001';
+  // Smart default: current host with port 3001
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  const port = 3001;
+  return `${protocol}//${hostname}:${port}`;
 }
 
 /**

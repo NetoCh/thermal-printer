@@ -4,20 +4,36 @@
 # Thermal Printer Application - Production Startup Script (Bash)
 # ============================================================================
 # Usage:
-#   ./start.sh              - Install & run both frontend and backend (default)
-#   ./start.sh frontend     - Install & run frontend only
+#   ./start.sh              - Install & run both frontend and backend (PRODUCTION)
+#   ./start.sh frontend     - Install & run frontend only (PRODUCTION)
 #   ./start.sh backend      - Install & run backend only
 #   ./start.sh install      - Install dependencies only
+#   ./start.sh print        - Print server info to thermal printer
 # ============================================================================
 
 set -e  # Exit on error
 
 # Configuration
-FRONTEND_PORT=5173
+FRONTEND_PORT=4173  # Production preview port
 BACKEND_PORT=3001
 LOG_DIR="logs"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 MODE="${1:-both}"
+
+# Get local IP address
+get_local_ip() {
+    if command -v ip >/dev/null 2>&1; then
+        # Linux
+        ip route get 1 2>/dev/null | awk '{print $7}' | head -n 1
+    elif command -v ifconfig >/dev/null 2>&1; then
+        # macOS/BSD
+        ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -n 1
+    else
+        echo "localhost"
+    fi
+}
+
+LOCAL_IP=$(get_local_ip)
 
 # Colors for output
 COLOR_RESET='\033[0m'
@@ -51,23 +67,59 @@ command_exists() {
 }
 
 check_port() {
+    local port=$1
+    
+    # Try lsof first (Unix/Linux/Mac)
     if command_exists lsof; then
-        lsof -i :"$1" >/dev/null 2>&1
-    elif command_exists netstat; then
-        netstat -tuln | grep -q ":$1 "
-    else
-        nc -z localhost "$1" 2>/dev/null
+        lsof -i :"$port" >/dev/null 2>&1
+        return $?
     fi
+    
+    # Try netstat
+    if command_exists netstat; then
+        # Detect OS and use appropriate flags
+        if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+            # Windows (Git Bash/MSYS/Cygwin)
+            netstat -an 2>/dev/null | grep -q "LISTENING.*:$port"
+            return $?
+        else
+            # Linux/Mac
+            netstat -tuln 2>/dev/null | grep -q ":$port "
+            return $?
+        fi
+    fi
+    
+    # Fallback to nc (netcat)
+    if command_exists nc; then
+        nc -z localhost "$port" 2>/dev/null
+        return $?
+    fi
+    
+    # If nothing works, return false
+    return 1
 }
 
 kill_port() {
     local port=$1
-    print_color "$COLOR_YELLOW" "  ⚠ Port $port is already in use"
+    print_color "$COLOR_YELLOW" "  ⚠ Killing process on port $port..."
     
-    if command_exists lsof; then
+    # Windows (Git Bash/MSYS/Cygwin)
+    if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+        # Find PID using netstat on Windows
+        local pid=$(netstat -ano 2>/dev/null | grep "LISTENING.*:$port" | awk '{print $5}' | head -n 1)
+        if [ ! -z "$pid" ] && [ "$pid" != "0" ]; then
+            print_color "$COLOR_YELLOW" "  Stopping process PID: $pid"
+            taskkill //F //PID "$pid" >/dev/null 2>&1 || true
+            sleep 2
+            print_color "$COLOR_GREEN" "  ✓ Port $port freed"
+        else
+            print_color "$COLOR_YELLOW" "  ⚠ Could not find process. Port may not be in use."
+        fi
+    # Unix/Linux/Mac
+    elif command_exists lsof; then
         local pid=$(lsof -ti :"$port")
         if [ ! -z "$pid" ]; then
-            print_color "$COLOR_YELLOW" "  ⚠ Killing process $pid on port $port"
+            print_color "$COLOR_YELLOW" "  Stopping process PID: $pid"
             kill -9 "$pid" 2>/dev/null || true
             sleep 2
             print_color "$COLOR_GREEN" "  ✓ Port $port freed"
@@ -194,7 +246,7 @@ install_dependencies() {
 # ============================================================================
 
 start_backend() {
-    print_banner "Starting Backend Server"
+    print_banner "Starting Backend Server (Production)"
     
     # Check if port is already in use
     if check_port "$BACKEND_PORT"; then
@@ -208,8 +260,9 @@ start_backend() {
         fi
     fi
     
-    print_color "$COLOR_GREEN" "  Starting backend on http://localhost:$BACKEND_PORT"
-    print_color "$COLOR_YELLOW" "  Log file: $LOG_DIR/backend-$TIMESTAMP.log"
+    print_color "$COLOR_GREEN" "  🌐 Local:   http://localhost:$BACKEND_PORT"
+    print_color "$COLOR_GREEN" "  🌐 Network: http://$LOCAL_IP:$BACKEND_PORT"
+    print_color "$COLOR_YELLOW" "  📝 Log file: $LOG_DIR/backend-$TIMESTAMP.log"
     echo ""
     
     # Start backend in background
@@ -225,7 +278,7 @@ start_backend() {
 }
 
 start_frontend() {
-    print_banner "Starting Frontend Development Server"
+    print_banner "Starting Frontend Server (Production)"
     
     # Check if port is already in use
     if check_port "$FRONTEND_PORT"; then
@@ -239,12 +292,25 @@ start_frontend() {
         fi
     fi
     
-    print_color "$COLOR_GREEN" "  Starting frontend on http://localhost:$FRONTEND_PORT"
-    print_color "$COLOR_YELLOW" "  Log file: $LOG_DIR/frontend-$TIMESTAMP.log"
+    print_color "$COLOR_CYAN" "  🔨 Building production bundle..."
     echo ""
     
-    # Start frontend in background
-    npm run dev 2>&1 | tee "$LOG_DIR/frontend-$TIMESTAMP.log" &
+    # Build first
+    if npm run build 2>&1 | tee "$LOG_DIR/frontend-build-$TIMESTAMP.log"; then
+        print_color "$COLOR_GREEN" "  ✓ Build completed successfully"
+        echo ""
+    else
+        print_color "$COLOR_RED" "  ✗ Build failed. Check logs for details."
+        exit 1
+    fi
+    
+    print_color "$COLOR_GREEN" "  🌐 Local:   http://localhost:$FRONTEND_PORT"
+    print_color "$COLOR_GREEN" "  🌐 Network: http://$LOCAL_IP:$FRONTEND_PORT"
+    print_color "$COLOR_YELLOW" "  📝 Log file: $LOG_DIR/frontend-$TIMESTAMP.log"
+    echo ""
+    
+    # Start frontend preview in background
+    npm run preview 2>&1 | tee "$LOG_DIR/frontend-$TIMESTAMP.log" &
     echo $! > "$LOG_DIR/frontend.pid"
     
     # Wait for frontend to start
@@ -288,6 +354,60 @@ cleanup() {
 trap cleanup INT TERM
 
 # ============================================================================
+# Print to Thermal Printer Function
+# ============================================================================
+
+print_to_thermal_printer() {
+    print_banner "Printing Server Info to Thermal Printer"
+    
+    # Check if backend is running
+    if ! check_port "$BACKEND_PORT"; then
+        print_color "$COLOR_RED" "  ✗ Backend is not running on port $BACKEND_PORT"
+        print_color "$COLOR_YELLOW" "  Start backend first with: ./start.sh backend"
+        return 1
+    fi
+    
+    print_color "$COLOR_CYAN" "  Sending print job to thermal printer..."
+    
+    # Get server info and format it for printing
+    local print_text="THERMAL PRINTER SERVER\n\n"
+    print_text+="Frontend URLs:\n"
+    print_text+="Local:   http://localhost:$FRONTEND_PORT\n"
+    print_text+="Network: http://$LOCAL_IP:$FRONTEND_PORT\n\n"
+    print_text+="Backend API URLs:\n"
+    print_text+="Local:   http://localhost:$BACKEND_PORT\n"
+    print_text+="Network: http://$LOCAL_IP:$BACKEND_PORT\n\n"
+    print_text+="Started: $(date '+%Y-%m-%d %H:%M:%S')\n"
+    print_text+="IP Address: $LOCAL_IP"
+    
+    # Send to printer via API
+    local response=$(curl -s -X POST "http://localhost:$BACKEND_PORT/api/printer/print" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"text\": \"$print_text\",
+            \"customText\": \"Hard Plot Center - Server Info\",
+            \"timestamp\": \"$(date '+%Y-%m-%d %H:%M:%S')\"
+        }" 2>&1)
+    
+    if echo "$response" | grep -q '"success":true'; then
+        print_color "$COLOR_GREEN" "  ✓ Server info printed successfully!"
+        echo ""
+        print_color "$COLOR_WHITE" "  Printed information:"
+        print_color "$COLOR_CYAN" "  ─────────────────────────────────────────"
+        print_color "$COLOR_WHITE" "  📱 Frontend: http://$LOCAL_IP:$FRONTEND_PORT"
+        print_color "$COLOR_WHITE" "  🔌 Backend:  http://$LOCAL_IP:$BACKEND_PORT"
+        print_color "$COLOR_CYAN" "  ─────────────────────────────────────────"
+    else
+        print_color "$COLOR_RED" "  ✗ Failed to print server info"
+        print_color "$COLOR_YELLOW" "  Make sure a printer is connected"
+        print_color "$COLOR_YELLOW" "  Response: $response"
+        return 1
+    fi
+    
+    echo ""
+}
+
+# ============================================================================
 # Main Execution
 # ============================================================================
 
@@ -307,9 +427,9 @@ main() {
     echo ""
     
     # Validate mode
-    if [[ ! "$MODE" =~ ^(both|frontend|backend|install)$ ]]; then
+    if [[ ! "$MODE" =~ ^(both|frontend|backend|install|print)$ ]]; then
         print_color "$COLOR_RED" "Invalid mode: $MODE"
-        print_color "$COLOR_YELLOW" "Valid modes: both, frontend, backend, install"
+        print_color "$COLOR_YELLOW" "Valid modes: both, frontend, backend, install, print"
         exit 1
     fi
     
@@ -322,18 +442,36 @@ main() {
             install_dependencies "all"
             print_color "$COLOR_GREEN" "Installation complete! Run './start.sh' to start the application."
             ;;
+        print)
+            print_to_thermal_printer
+            ;;
         backend)
             install_dependencies "backend"
             start_backend
             print_color "$COLOR_GREEN" "
 ╔═══════════════════════════════════════════════════════════╗
-║  Backend Server Started                                   ║
+║  Backend Server Started (Production)                      ║
 ║                                                           ║
-║  API:  http://localhost:$BACKEND_PORT                           ║
-║  Logs: $LOG_DIR/backend-$TIMESTAMP.log       ║
+║  🌐 Local:   http://localhost:$BACKEND_PORT                     ║
+║  🌐 Network: http://$LOCAL_IP:$BACKEND_PORT           ║
+║                                                           ║
+║  📝 Logs: $LOG_DIR/backend-$TIMESTAMP.log    ║
+║                                                           ║
+║  💡 Access from other devices at:                         ║
+║     http://$LOCAL_IP:$BACKEND_PORT                  ║
 ║                                                           ║
 ║  Press Ctrl+C to stop                                     ║
 ╚═══════════════════════════════════════════════════════════╝"
+            
+            # Ask if user wants to print server info
+            echo ""
+            read -p "$(print_color "$COLOR_CYAN" "  Print server info to thermal printer? (y/N): ")" -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                sleep 2
+                print_to_thermal_printer
+            fi
+            
             # Wait for user to press Ctrl+C
             while true; do sleep 1; done
             ;;
@@ -342,10 +480,17 @@ main() {
             start_frontend
             print_color "$COLOR_GREEN" "
 ╔═══════════════════════════════════════════════════════════╗
-║  Frontend Server Started                                  ║
+║  Frontend Server Started (Production)                     ║
 ║                                                           ║
-║  Web:  http://localhost:$FRONTEND_PORT                          ║
-║  Logs: $LOG_DIR/frontend-$TIMESTAMP.log      ║
+║  🌐 Local:   http://localhost:$FRONTEND_PORT                    ║
+║  🌐 Network: http://$LOCAL_IP:$FRONTEND_PORT          ║
+║                                                           ║
+║  📝 Logs: $LOG_DIR/frontend-$TIMESTAMP.log   ║
+║                                                           ║
+║  💡 Access from other devices at:                         ║
+║     http://$LOCAL_IP:$FRONTEND_PORT                 ║
+║                                                           ║
+║  📱 Scan QR code or share URL with mobile devices         ║
 ║                                                           ║
 ║  Press Ctrl+C to stop                                     ║
 ╚═══════════════════════════════════════════════════════════╝"
@@ -359,15 +504,37 @@ main() {
             start_frontend
             print_color "$COLOR_GREEN" "
 ╔═══════════════════════════════════════════════════════════╗
-║  Application Started Successfully                         ║
+║  🎉 Application Started Successfully! (Production)        ║
 ║                                                           ║
-║  Frontend: http://localhost:$FRONTEND_PORT                      ║
-║  Backend:  http://localhost:$BACKEND_PORT                       ║
+║  📱 Frontend (Web UI):                                    ║
+║     Local:   http://localhost:$FRONTEND_PORT                    ║
+║     Network: http://$LOCAL_IP:$FRONTEND_PORT          ║
 ║                                                           ║
-║  Logs Directory: $LOG_DIR/                               ║
+║  🔌 Backend (API):                                        ║
+║     Local:   http://localhost:$BACKEND_PORT                     ║
+║     Network: http://$LOCAL_IP:$BACKEND_PORT           ║
+║                                                           ║
+║  📝 Logs: $LOG_DIR/                          ║
+║                                                           ║
+║  💡 NETWORK ACCESS:                                       ║
+║     Open http://$LOCAL_IP:$FRONTEND_PORT on any device   ║
+║     connected to your WiFi network!                       ║
+║                                                           ║
+║  🖨️  To print this info, press 'p' then Enter             ║
+║  📖 Full API docs: http://$LOCAL_IP:$BACKEND_PORT/api/server/info    ║
 ║                                                           ║
 ║  Press Ctrl+C to stop both services                       ║
 ╚═══════════════════════════════════════════════════════════╝"
+            
+            # Ask if user wants to print server info
+            echo ""
+            read -p "$(print_color "$COLOR_CYAN" "  Print server info to thermal printer? (y/N): ")" -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                sleep 2
+                print_to_thermal_printer
+            fi
+            
             # Wait for user to press Ctrl+C
             while true; do sleep 1; done
             ;;

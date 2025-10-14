@@ -4,18 +4,30 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
+    "dev:all": "concurrently -n \"FRONT,BACK\" -c \"cyan,green\" \"npm run dev\" \"npm run backend\"",
     "build": "vite build",
+    "preview": "vite preview --host",
+    "preview:local": "vite preview",
+    "start": "npm run build && npm run preview",
+    "backend": "cd server && npm start",
+    "prod:all": "npm run build && concurrently -n \"FRONT,BACK\" -c \"cyan,green\" \"npm run preview\" \"npm run backend\"",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "help": "node -e \"console.log('\\n📋 Available Make Commands:\\n'); console.log('  npm run make:install   - Install all dependencies'); console.log('  npm run make:dev       - Start development'); console.log('  npm run make:dev:all   - Start dev frontend + backend'); console.log('  npm run make:prod      - Build & start production frontend'); console.log('  npm run make:prod:all  - Build & start production BOTH ⭐'); console.log('  npm run make:build     - Build production bundle'); console.log('  npm run make:backend   - Start backend only'); console.log('  npm run make:clean     - Clean build files'); console.log('  npm run make:kill      - Kill server processes'); console.log('\\n💡 Or use make directly: make dev, make prod-all, etc.\\n')\"",
+    "install": "npm install && cd server && npm install",
+    "prod": "npm run build && npm run preview",
+    "frontend": "npm run dev",
+    "clean": "node -e \"const fs=require('fs'); const path=require('path'); const dirs=['node_modules','dist','logs','.vite','server/node_modules']; dirs.forEach(d=>{ try{ fs.rmSync(d,{recursive:true,force:true}); console.log('✓ Removed',d); }catch(e){} }); console.log('\\n✅ Cleanup complete!\\n')\"",
+    "kill": "node -e \"const {execSync}=require('child_process'); try{ if(process.platform==='win32'){ execSync('taskkill /F /IM node.exe',{stdio:'inherit'}); }else{ execSync('pkill -f node',{stdio:'inherit'}); } console.log('\\n✅ All node processes killed\\n'); }catch(e){ console.log('\\n⚠️ No node processes found or error killing processes\\n'); }\"",
+    "kill:port": "node -e \"const port=process.argv[1]; const {execSync}=require('child_process'); if(process.platform==='win32'){ const cmd='netstat -ano | findstr :'+port; try{ const out=execSync(cmd).toString(); const pid=out.split('\\\\n')[0].trim().split(/\\\\s+/).pop(); if(pid){ execSync('taskkill /F /PID '+pid); console.log('Killed process on port',port); } }catch(e){ console.log('No process on port',port); } }\""
   },
   "main": "index.html",
   "homepage": "./",
-
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "lucide-react": "^0.344.0",
+    "make": "^0.8.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.9.3"

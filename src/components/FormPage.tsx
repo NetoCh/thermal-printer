@@ -105,18 +105,18 @@ const FormPage: React.FC<FormPageProps> = ({
   ];
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
       <div className="bg-white rounded-xl shadow-xl">
         {/* Header */}
-        <div className="p-6 border-b">
-          <div className="flex items-center space-x-3">
-            <FileText className="w-6 h-6 text-gray-700" />
-            <h2 className="text-2xl font-bold text-gray-800">Business Information Form</h2>
+        <div className="p-4 sm:p-6 border-b">
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
+            <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Business Information Form</h2>
           </div>
-          <p className="text-gray-600 mt-2">Fill out the form and print business information on your thermal printer</p>
+          <p className="text-sm sm:text-base text-gray-600 mt-2">Fill out the form and print business information on your thermal printer</p>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Error Messages */}
           {errors.length > 0 && (
             <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg">
@@ -130,12 +130,12 @@ const FormPage: React.FC<FormPageProps> = ({
           )}
 
           {/* Form Fields */}
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-gray-800">Form Fields</h3>
+          <div className="space-y-4 sm:space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-800">Form Fields</h3>
               <button
                 onClick={addField}
-                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Field</span>
@@ -144,12 +144,12 @@ const FormPage: React.FC<FormPageProps> = ({
 
             <div className="space-y-4">
               {formFields.map((field, index) => (
-                <div key={field.id} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-medium text-gray-700">Field {index + 1}</h4>
+                <div key={field.id} className="p-3 sm:p-4 border border-gray-200 rounded-lg bg-gray-50">
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <h4 className="text-sm sm:text-base font-medium text-gray-700">Field {index + 1}</h4>
                     <button
                       onClick={() => removeField(field.id)}
-                      className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors"
+                      className="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors"
                       disabled={formFields.length <= 1}
                     >
                       <Trash2 className="w-4 h-4" />
@@ -157,7 +157,7 @@ const FormPage: React.FC<FormPageProps> = ({
                   </div>
 
                   {/* Field Configuration */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Label
@@ -229,10 +229,10 @@ const FormPage: React.FC<FormPageProps> = ({
           </div>
 
           {/* Preview */}
-          <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-gray-800">Print Preview</h3>
-            <div className="p-4 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
-              <div className="font-mono text-sm whitespace-pre-line">
+          <div className="space-y-3 sm:space-y-4">
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-800">Print Preview</h3>
+            <div className="p-3 sm:p-4 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 overflow-x-auto">
+              <div className="font-mono text-xs sm:text-sm whitespace-pre-line min-h-[60px]">
                 {formFields
                   .filter(field => field.value.trim())
                   .map(field => `${field.label}: ${field.value}`)
@@ -242,26 +242,24 @@ const FormPage: React.FC<FormPageProps> = ({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t bg-gray-50">
+        {/* Footer - Responsive */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 sm:p-6 border-t bg-gray-50">
           <button
             onClick={handleReset}
-            className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+            className="flex items-center justify-center space-x-2 px-4 py-2.5 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors order-2 sm:order-1"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Reset</span>
           </button>
 
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={handlePrint}
-              disabled={!isConnected}
-              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Print</span>
-            </button>
-          </div>
+          <button
+            onClick={handlePrint}
+            disabled={!isConnected}
+            className="flex items-center justify-center space-x-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors order-1 sm:order-2"
+          >
+            <Printer className="w-4 h-4" />
+            <span className="font-medium">Print</span>
+          </button>
         </div>
       </div>
     </div>

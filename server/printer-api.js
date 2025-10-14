@@ -61,9 +61,16 @@ async function listSerialPorts() {
 }
 
 /**
- * Connect to a serial/COM port printer
+ * Utility: Sleep/delay function
  */
-async function connectToSerialPort(portPath, baudRate = 19200) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Connect to a serial/COM port printer (single attempt)
+ */
+async function connectToSerialPortAttempt(portPath, baudRate = 19200) {
   return new Promise((resolve, reject) => {
     try {
       const port = new SerialPort({
@@ -75,7 +82,7 @@ async function connectToSerialPort(portPath, baudRate = 19200) {
       });
 
       port.on('open', () => {
-        console.log(`Connected to serial printer at ${portPath}`);
+        console.log(`✓ Connected to serial printer at ${portPath}`);
         
         // Initialize printer
         port.write(ESC_POS.INIT, (err) => {
@@ -98,6 +105,63 @@ async function connectToSerialPort(portPath, baudRate = 19200) {
       reject(error);
     }
   });
+}
+
+/**
+ * Connect to a serial/COM port printer with retry logic
+ * Retries up to MAX_RETRIES times with exponential backoff
+ */
+async function connectToSerialPort(portPath, baudRate = 19200, maxRetries = 3) {
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`\nAttempt ${attempt}/${maxRetries}: Connecting to ${portPath}...`);
+      
+      const port = await connectToSerialPortAttempt(portPath, baudRate);
+      
+      // Success!
+      console.log(`✓ Successfully connected to ${portPath} on attempt ${attempt}`);
+      return port;
+      
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error.message || error.toString();
+      
+      // Check if it's an "Access denied" or permission error
+      const isAccessDenied = errorMessage.toLowerCase().includes('access denied') ||
+                             errorMessage.toLowerCase().includes('permission denied') ||
+                             errorMessage.toLowerCase().includes('eacces');
+      
+      if (isAccessDenied) {
+        console.error(`✗ Access denied on ${portPath} (Attempt ${attempt}/${maxRetries})`);
+        
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s...
+          const delayMs = Math.pow(2, attempt - 1) * 1000;
+          console.log(`  ⏳ Waiting ${delayMs/1000}s before retry...`);
+          console.log(`  💡 Tip: Close any programs using ${portPath} (e.g., Device Manager, other apps)`);
+          await sleep(delayMs);
+        }
+      } else {
+        // For non-access errors, fail immediately
+        console.error(`✗ Connection error: ${errorMessage}`);
+        throw error;
+      }
+    }
+  }
+  
+  // All retries exhausted
+  console.error(`\n✗ Failed to connect to ${portPath} after ${maxRetries} attempts`);
+  console.error(`   Last error: ${lastError.message || lastError}`);
+  console.error(`\n💡 Troubleshooting tips:`);
+  console.error(`   1. Close Device Manager or any app accessing ${portPath}`);
+  console.error(`   2. Disconnect and reconnect the USB cable`);
+  console.error(`   3. Check if another process is using the port`);
+  console.error(`   4. Try a different USB port`);
+  console.error(`   5. Restart the printer`);
+  
+  throw new Error(`Failed to connect to ${portPath} after ${maxRetries} attempts: ${lastError.message || lastError}`);
 }
 
 /**
