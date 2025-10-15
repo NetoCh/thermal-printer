@@ -175,8 +175,8 @@ async function connectToSerialPort(portPath, baudRate = 19200, maxRetries = 3) {
  */
 async function scanForPrinters(baseIP = '192.168.1') {
   const printers = [];
-  const ports = [9100, 515]; // 9100 = RAW printing, 515 = LPD
-  const timeout = 500;
+  const ports = [9100, 515, 631]; // 9100 = RAW printing, 515 = LPD, 631 = IPP
+  const timeout = 2000; // Increased timeout for better detection
   
   console.log(`Scanning network ${baseIP}.x for printers...`);
   
